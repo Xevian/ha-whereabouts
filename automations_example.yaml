@@ -1,0 +1,276 @@
+# Whereabouts — Example Automations
+#
+# These automations respond to events fired by the Whereabouts integration.
+# Copy the ones you need into your automations.yaml (or paste via the HA UI).
+#
+# IMPORTANT — template context:
+#   Some services (telegram_bot, etc.) render action data templates in a
+#   restricted context where 'trigger' is unavailable.  Every automation below
+#   uses a 'variables:' block to extract all event data BEFORE the action runs.
+#   The action then only references plain variables, which work everywhere.
+#
+# Event payloads:
+#   whereabouts_arrived:
+#     person_entity_id: person.john
+#     city: Paris
+#     previous_city: Lyon        # null on first detection after HA restart
+#     country: France
+#     country_code: FR
+#     latitude: 48.8566
+#     longitude: 2.3522
+#
+#   whereabouts_departed:
+#     person_entity_id: person.john
+#     city: Paris
+#     country: France
+#     latitude: 48.8566
+#     longitude: 2.3522
+#
+#   whereabouts_country_arrived:
+#     person_entity_id: person.john
+#     country: France
+#     country_code: FR
+#     previous_country: Spain    # null on first detection after HA restart
+#     latitude: 48.8566
+#     longitude: 2.3522
+#
+#   whereabouts_country_departed:
+#     person_entity_id: person.john
+#     country: Spain
+#     latitude: 37.3891
+#     longitude: -5.9845
+#
+#   whereabouts_calendar_arrived:
+#     person_entity_id: person.john
+#     calendar_event: "MCM Comic Con Birmingham"
+#     latitude: 52.4500
+#     longitude: -1.7240
+#
+#   whereabouts_calendar_departed:
+#     person_entity_id: person.john
+#     calendar_event: "MCM Comic Con Birmingham"
+#     latitude: 52.4500
+#     longitude: -1.7240
+
+automation:
+
+  # -----------------------------------------------------------------------
+  # 1. Notify whenever ANY tracked person arrives in ANY city
+  # -----------------------------------------------------------------------
+  - alias: "Whereabouts – Arrival notification"
+    id: whereabouts_arrival_notify
+    trigger:
+      - platform: event
+        event_type: whereabouts_arrived
+    variables:
+      city: "{{ trigger.event.data.city }}"
+      person_name: "{{ states[trigger.event.data.person_entity_id].name }}"
+      previous_city: "{{ trigger.event.data.previous_city }}"
+    condition: []
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "Arrived in {{ city }}"
+          message: >-
+            {{ person_name }} has arrived in {{ city }}
+            {%- if previous_city %} (previously in {{ previous_city }}){%- endif %}.
+    mode: parallel
+
+  # -----------------------------------------------------------------------
+  # 2. Trigger only for a specific person arriving in a specific city
+  # -----------------------------------------------------------------------
+  - alias: "Whereabouts – John arrives in Paris"
+    id: whereabouts_john_arrives_paris
+    trigger:
+      - platform: event
+        event_type: whereabouts_arrived
+        event_data:
+          person_entity_id: person.john
+          city: Paris
+    condition: []
+    action:
+      - service: notify.mobile_app_jane_phone
+        data:
+          title: "John is in Paris!"
+          message: "John just arrived in Paris."
+    mode: single
+
+  # -----------------------------------------------------------------------
+  # 3. Notify whenever ANY tracked person departs a city
+  # -----------------------------------------------------------------------
+  - alias: "Whereabouts – Departure notification"
+    id: whereabouts_departure_notify
+    trigger:
+      - platform: event
+        event_type: whereabouts_departed
+    variables:
+      city: "{{ trigger.event.data.city }}"
+      person_name: "{{ states[trigger.event.data.person_entity_id].name }}"
+    condition: []
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "Left {{ city }}"
+          message: "{{ person_name }} has left {{ city }}."
+    mode: parallel
+
+  # -----------------------------------------------------------------------
+  # 4. React when a person enters the "moving" state
+  #    (outside any named place boundary)
+  # -----------------------------------------------------------------------
+  - alias: "Whereabouts – Person is now moving"
+    id: whereabouts_moving
+    trigger:
+      - platform: state
+        entity_id: sensor.whereabouts_john  # adjust to match your sensor entity ID
+        to: moving
+    condition: []
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "John is on the move"
+          message: "John has left a city and is currently between places."
+    mode: single
+
+  # -----------------------------------------------------------------------
+  # 5. Conditional action: run something only when person is in a given city
+  #    (uses the sensor state directly rather than events)
+  # -----------------------------------------------------------------------
+  - alias: "Whereabouts – Turn on welcome lights when John is in London"
+    id: whereabouts_london_lights
+    trigger:
+      - platform: state
+        entity_id: sensor.whereabouts_john
+        to: London
+    condition: []
+    action:
+      - service: light.turn_on
+        target:
+          entity_id: light.living_room
+        data:
+          brightness_pct: 80
+    mode: single
+
+  # -----------------------------------------------------------------------
+  # 6. "Landing in…" — notify when a person arrives in a new country
+  # -----------------------------------------------------------------------
+  - alias: "Whereabouts – Landing in a new country"
+    id: whereabouts_country_arrived
+    trigger:
+      - platform: event
+        event_type: whereabouts_country_arrived
+    variables:
+      country: "{{ trigger.event.data.country }}"
+      country_code: "{{ trigger.event.data.country_code }}"
+      previous_country: "{{ trigger.event.data.previous_country }}"
+      person_name: "{{ states[trigger.event.data.person_entity_id].name }}"
+    condition: []
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "✈️ Landing in {{ country }}"
+          message: >-
+            {{ person_name }} has arrived in {{ country }} ({{ country_code }})
+            {%- if previous_country %} from {{ previous_country }}{%- endif %}.
+    mode: parallel
+
+  # -----------------------------------------------------------------------
+  # 7. Notify when a person leaves a country
+  # -----------------------------------------------------------------------
+  - alias: "Whereabouts – Left a country"
+    id: whereabouts_country_departed
+    trigger:
+      - platform: event
+        event_type: whereabouts_country_departed
+    variables:
+      country: "{{ trigger.event.data.country }}"
+      person_name: "{{ states[trigger.event.data.person_entity_id].name }}"
+    condition: []
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "Left {{ country }}"
+          message: "{{ person_name }} has left {{ country }}."
+    mode: parallel
+
+  # -----------------------------------------------------------------------
+  # 8. Trigger only when a specific person lands in a specific country
+  # -----------------------------------------------------------------------
+  - alias: "Whereabouts – John arrives in France"
+    id: whereabouts_john_arrives_france
+    trigger:
+      - platform: event
+        event_type: whereabouts_country_arrived
+        event_data:
+          person_entity_id: person.john
+          country_code: FR
+    condition: []
+    action:
+      - service: notify.mobile_app_jane_phone
+        data:
+          title: "John is in France!"
+          message: "John has arrived in France. Bonjour!"
+    mode: single
+
+  # -----------------------------------------------------------------------
+  # 9. Notify when arriving at a calendar event venue
+  #    Requires: a calendar linked to the person in Whereabouts options.
+  #    The sensor state also changes to the event title while nearby.
+  # -----------------------------------------------------------------------
+  - alias: "Whereabouts – Arrived at calendar event"
+    id: whereabouts_calendar_arrived
+    trigger:
+      - platform: event
+        event_type: whereabouts_calendar_arrived
+    variables:
+      event_title: "{{ trigger.event.data.calendar_event }}"
+      person_name: "{{ states[trigger.event.data.person_entity_id].name }}"
+    condition: []
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "📍 {{ event_title }}"
+          message: "{{ person_name }} has arrived at {{ event_title }}."
+    mode: parallel
+
+  # -----------------------------------------------------------------------
+  # 10. Notify when leaving a calendar event venue
+  # -----------------------------------------------------------------------
+  - alias: "Whereabouts – Left calendar event"
+    id: whereabouts_calendar_departed
+    trigger:
+      - platform: event
+        event_type: whereabouts_calendar_departed
+    variables:
+      event_title: "{{ trigger.event.data.calendar_event }}"
+      person_name: "{{ states[trigger.event.data.person_entity_id].name }}"
+    condition: []
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "Left {{ event_title }}"
+          message: "{{ person_name }} has left {{ event_title }}."
+    mode: parallel
+
+  # -----------------------------------------------------------------------
+  # 11. Trigger only for a specific person at a specific event
+  #     (match by partial event title using a condition template)
+  # -----------------------------------------------------------------------
+  - alias: "Whereabouts – John at MCM Comic Con"
+    id: whereabouts_john_mcm
+    trigger:
+      - platform: event
+        event_type: whereabouts_calendar_arrived
+        event_data:
+          person_entity_id: person.john
+    variables:
+      event_title: "{{ trigger.event.data.calendar_event }}"
+    condition:
+      - condition: template
+        value_template: "{{ 'MCM' in event_title }}"
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "Convention time! 🎉"
+          message: "John has arrived at {{ event_title }}. Have fun!"
+    mode: single

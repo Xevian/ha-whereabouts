@@ -1,0 +1,14 @@
+{
+  "domain": "whereabouts",
+  "name": "Whereabouts",
+  "version": "1.0.0",
+  "documentation": "https://github.com/Xevian/ha-whereabouts",
+  "issue_tracker": "https://github.com/Xevian/ha-whereabouts/issues",
+  "codeowners": ["@Xevian"],
+  "requirements": [],
+  "dependencies": [],
+  "after_dependencies": ["person"],
+  "config_flow": true,
+  "iot_class": "cloud_polling",
+  "quality_scale": "custom"
+}

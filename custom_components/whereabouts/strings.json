@@ -1,0 +1,60 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Whereabouts",
+        "description": "Select the people to track, how long to wait between geocode calls, and the radius used to detect calendar event venues.",
+        "data": {
+          "person_entities": "People to track",
+          "scan_interval": "Geocode cooldown (minutes)",
+          "event_radius_m": "Event arrival radius (metres)"
+        }
+      },
+      "calendars": {
+        "title": "Assign calendar — {person_name}",
+        "description": "Optionally link a calendar to {person_name}. When a calendar event with a location is active and {person_name} is within the arrival radius, their sensor will show the event name instead of the city.",
+        "data": {
+          "calendar_entity": "Calendar"
+        }
+      }
+    },
+    "error": {
+      "no_persons_selected": "Please select at least one person to track.",
+      "scan_interval_too_low": "Interval must be at least 1 minute."
+    },
+    "abort": {
+      "already_configured": "This combination of people is already being tracked."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Whereabouts options",
+        "menu_options": {
+          "settings": "Change settings (people, cooldown, radius)",
+          "calendars": "Change calendar assignments"
+        }
+      },
+      "settings": {
+        "title": "Whereabouts settings",
+        "description": "Update tracked people, geocode cooldown, and event arrival radius.",
+        "data": {
+          "person_entities": "People to track",
+          "scan_interval": "Geocode cooldown (minutes)",
+          "event_radius_m": "Event arrival radius (metres)"
+        }
+      },
+      "calendars": {
+        "title": "Assign calendar — {person_name}",
+        "description": "Optionally link a calendar to {person_name}. When a calendar event with a location is active and {person_name} is within the arrival radius, their sensor will show the event name instead of the city.",
+        "data": {
+          "calendar_entity": "Calendar"
+        }
+      }
+    },
+    "error": {
+      "no_persons_selected": "Please select at least one person to track.",
+      "scan_interval_too_low": "Interval must be at least 1 minute."
+    }
+  }
+}
