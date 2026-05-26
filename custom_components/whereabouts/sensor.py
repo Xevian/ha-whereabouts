@@ -8,6 +8,7 @@ from typing import Any
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -75,6 +76,21 @@ class WhereaboutsSensor(CoordinatorEntity[WhereaboutsCoordinator], SensorEntity)
             person_entity_id.split(".")[-1].replace("_", " ").title()
         )
         self._attr_name = f"Whereabouts {person_name}"
+
+    # ------------------------------------------------------------------
+    # Device info — groups sensor + event tracker under one device per person
+    # ------------------------------------------------------------------
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        person_name = self._person_entity_id.split(".")[-1].replace("_", " ").title()
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._person_entity_id)},
+            name=f"Whereabouts {person_name}",
+            manufacturer="Whereabouts",
+            model="Location Tracker",
+            entry_type=DeviceEntryType.SERVICE,
+        )
 
     # ------------------------------------------------------------------
     # State & attributes

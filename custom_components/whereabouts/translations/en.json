@@ -26,6 +26,16 @@
       "already_configured": "This combination of people is already being tracked."
     }
   },
+  "device_automation": {
+    "trigger_type": {
+      "arrived": "Arrived in a city",
+      "departed": "Left a city",
+      "country_arrived": "Arrived in a country",
+      "country_departed": "Left a country",
+      "calendar_arrived": "Arrived at a calendar event venue",
+      "calendar_departed": "Left a calendar event venue"
+    }
+  },
   "options": {
     "step": {
       "init": {

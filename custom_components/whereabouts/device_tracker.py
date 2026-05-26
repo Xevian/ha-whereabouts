@@ -9,6 +9,7 @@ from typing import Any
 from homeassistant.components.device_tracker import SourceType, TrackerEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -87,6 +88,21 @@ class WhereaboutsEventTracker(CoordinatorEntity[WhereaboutsCoordinator], Tracker
         self._attr_unique_id = f"whereabouts_event_{safe_id}"
         person_name = person_entity_id.split(".")[-1].replace("_", " ").title()
         self._attr_name = f"Next Event {person_name}"
+
+    # ------------------------------------------------------------------
+    # Device info — same identifiers as the sensor so both share one device
+    # ------------------------------------------------------------------
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        person_name = self._person_entity_id.split(".")[-1].replace("_", " ").title()
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._person_entity_id)},
+            name=f"Whereabouts {person_name}",
+            manufacturer="Whereabouts",
+            model="Location Tracker",
+            entry_type=DeviceEntryType.SERVICE,
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle
