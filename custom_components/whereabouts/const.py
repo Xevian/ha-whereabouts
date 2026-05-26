@@ -48,12 +48,13 @@ ATTR_CALENDAR_EVENT = "calendar_event"
 # Nominatim forward geocoding (used to resolve calendar event locations).
 NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 
-# Nominatim — zoom=12 gives town/suburb level results (more specific than zoom=10).
+# Nominatim — zoom=13 gives street/suburb level results.
 # zoom=10 returns admin districts like "Greater London" or "Cotswold District";
-# zoom=12 returns towns and suburbs like "Westminster" or "Bourton-on-the-Water".
+# zoom=12 can still return borough names (e.g. "Tewkesbury" instead of "Gloucester");
+# zoom=13 is more specific and returns the actual settlement name reliably.
 NOMINATIM_URL = (
     "https://nominatim.openstreetmap.org/reverse"
-    "?lat={lat}&lon={lon}&format=json&zoom=12"
+    "?lat={lat}&lon={lon}&format=json&zoom=13"
 )
 NOMINATIM_USER_AGENT = f"HomeAssistant-Whereabouts/{INTEGRATION_VERSION}"
 NOMINATIM_TIMEOUT_SECONDS = 10

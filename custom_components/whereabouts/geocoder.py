@@ -21,7 +21,8 @@ _LOGGER = logging.getLogger(__name__)
 # "suburb" sits between city and town: at zoom=12 it catches London
 # neighbourhoods (Westminster, Hackney…) that would otherwise return the
 # large "Greater London" city entry.
-_CITY_ADDRESS_KEYS = ("city", "suburb", "town", "village", "hamlet")
+# "municipality" covers some European cities not tagged as city/town.
+_CITY_ADDRESS_KEYS = ("city", "suburb", "municipality", "town", "village", "hamlet")
 
 
 class NominatimGeocoder:
@@ -82,7 +83,7 @@ class NominatimGeocoder:
             )
             return None
 
-        return self._parse_response(data)
+        return self._parse_response(data, lat, lon)
 
     async def geocode_address(self, address: str) -> tuple[float, float] | None:
         """Forward-geocode a text address and return (lat, lon), or None.
@@ -131,9 +132,21 @@ class NominatimGeocoder:
             return None
 
     @staticmethod
-    def _parse_response(data: dict[str, Any]) -> dict[str, Any] | None:
+    def _parse_response(
+        data: dict[str, Any],
+        lat: float | None = None,
+        lon: float | None = None,
+    ) -> dict[str, Any] | None:
         """Extract a normalised city result from a raw Nominatim JSON response."""
         address: dict[str, str] = data.get("address", {})
+
+        # Log every key/value so misclassifications can be diagnosed from HA logs.
+        _LOGGER.debug(
+            "Nominatim address keys for (%.6f, %.6f): %s",
+            lat or 0.0,
+            lon or 0.0,
+            {k: v for k, v in address.items()},
+        )
 
         city_name: str | None = None
         place_type: str | None = None
