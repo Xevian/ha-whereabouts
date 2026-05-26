@@ -28,8 +28,8 @@
   },
   "device_automation": {
     "trigger_type": {
-      "arrived": "Arrived in a city",
-      "departed": "Left a city",
+      "city_changed": "City changed",
+      "started_moving": "Started moving (between cities)",
       "country_arrived": "Arrived in a country",
       "country_departed": "Left a country",
       "calendar_arrived": "Arrived at a calendar event venue",
