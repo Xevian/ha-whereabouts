@@ -33,6 +33,7 @@ from .const import (
     EVENT_CITY_DEPARTED,
     EVENT_COUNTRY_ARRIVED,
     EVENT_COUNTRY_DEPARTED,
+    EVENT_STARTED_MOVING,
     MAX_BBOX_DEGREES,
     STATE_MOVING,
     STATE_UNKNOWN,
@@ -186,9 +187,15 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         # ── Outside bbox: go to 'moving' immediately ─────────────────────
+        old_state = (cached or {}).get("state")
         moving = _moving_state(lat, lon, cached, speed_kmh, speed_mph, bearing, direction, event_title)
         self._cache[entity_id] = moving
         self._push(entity_id, moving)
+
+        # Fire started_moving only on the transition (city/unknown → moving),
+        # not on every subsequent GPS update while already moving.
+        if old_state not in (STATE_MOVING, STATE_UNKNOWN, None):
+            self._fire_started_moving(entity_id, lat, lon)
 
         # ── Geocoding cooldown check ──────────────────────────────────────
         last = self._last_geocode.get(entity_id)
@@ -350,6 +357,19 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ------------------------------------------------------------------
     # Event firing
     # ------------------------------------------------------------------
+
+    def _fire_started_moving(
+        self, entity_id: str, lat: float, lon: float
+    ) -> None:
+        self.hass.bus.async_fire(
+            EVENT_STARTED_MOVING,
+            {
+                ATTR_PERSON_ENTITY_ID: entity_id,
+                ATTR_LATITUDE: lat,
+                ATTR_LONGITUDE: lon,
+            },
+        )
+        _LOGGER.debug("%s: %s started moving", EVENT_STARTED_MOVING, entity_id)
 
     def _fire_departed(
         self,

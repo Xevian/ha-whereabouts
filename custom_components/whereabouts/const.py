@@ -23,6 +23,7 @@ STATE_UNKNOWN = "unknown"
 # Event names
 EVENT_CITY_ARRIVED = "whereabouts_arrived"
 EVENT_CITY_DEPARTED = "whereabouts_departed"
+EVENT_STARTED_MOVING = "whereabouts_started_moving"
 EVENT_COUNTRY_ARRIVED = "whereabouts_country_arrived"
 EVENT_COUNTRY_DEPARTED = "whereabouts_country_departed"
 EVENT_CALENDAR_ARRIVED = "whereabouts_calendar_arrived"
