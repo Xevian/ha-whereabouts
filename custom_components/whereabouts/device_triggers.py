@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.components.device_automation import DEVICE_TRIGGER_BASE_SCHEMA
-from homeassistant.components.homeassistant.triggers import event as event_trigger
 from homeassistant.const import CONF_DEVICE_ID, CONF_DOMAIN, CONF_PLATFORM, CONF_TYPE
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.trigger import TriggerActionType, TriggerInfo
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
@@ -25,8 +23,8 @@ from .const import (
     EVENT_STARTED_MOVING,
 )
 
-# All triggers are event-based — avoids state-trigger import fragility
-# and works reliably across all supported HA versions.
+_LOGGER = logging.getLogger(__name__)
+
 _TRIGGER_EVENT: dict[str, str] = {
     "city_changed":       EVENT_CITY_ARRIVED,
     "started_moving":     EVENT_STARTED_MOVING,
@@ -36,8 +34,15 @@ _TRIGGER_EVENT: dict[str, str] = {
     "calendar_departed":  EVENT_CALENDAR_DEPARTED,
 }
 
-TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
-    {vol.Required(CONF_TYPE): vol.In(_TRIGGER_EVENT)}
+# Minimal schema — no DEVICE_TRIGGER_BASE_SCHEMA import needed
+TRIGGER_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_PLATFORM): "device",
+        vol.Required(CONF_DOMAIN): DOMAIN,
+        vol.Required(CONF_DEVICE_ID): str,
+        vol.Required(CONF_TYPE): vol.In(_TRIGGER_EVENT),
+    },
+    extra=vol.ALLOW_EXTRA,
 )
 
 
@@ -56,8 +61,15 @@ async def async_get_triggers(
     hass: HomeAssistant, device_id: str
 ) -> list[dict[str, Any]]:
     """Return all triggers available for a Whereabouts device."""
-    if _person_entity_id(hass, device_id) is None:
+    device = dr.async_get(hass).async_get(device_id)
+    if device is None:
         return []
+    # Only expose triggers for devices registered by this integration
+    if not any(domain == DOMAIN for domain, _ in device.identifiers):
+        return []
+
+    _LOGGER.debug("async_get_triggers called for device %s", device_id)
+
     return [
         {
             CONF_PLATFORM: "device",
@@ -72,25 +84,34 @@ async def async_get_triggers(
 async def async_attach_trigger(
     hass: HomeAssistant,
     config: ConfigType,
-    action: TriggerActionType,
-    trigger_info: TriggerInfo,
+    action: Any,
+    trigger_info: Any,
 ) -> CALLBACK_TYPE:
-    """Attach an event trigger filtered to the specific person."""
+    """Listen for the matching HA bus event and call action when it fires."""
     person_id = _person_entity_id(hass, config[CONF_DEVICE_ID])
     event_type = _TRIGGER_EVENT[config[CONF_TYPE]]
 
-    return await event_trigger.async_attach_trigger(
-        hass,
-        event_trigger.TRIGGER_SCHEMA(
-            {
-                CONF_PLATFORM: "event",
-                event_trigger.CONF_EVENT_TYPE: event_type,
-                event_trigger.CONF_EVENT_DATA: {
-                    ATTR_PERSON_ENTITY_ID: person_id,
-                },
-            }
-        ),
-        action,
-        trigger_info,
-        platform_type="device",
+    _LOGGER.debug(
+        "Attaching trigger %s for person %s (event: %s)",
+        config[CONF_TYPE], person_id, event_type,
     )
+
+    @callback
+    def _handle_event(event: Any) -> None:
+        # Filter to the specific person this device represents
+        if person_id and event.data.get(ATTR_PERSON_ENTITY_ID) != person_id:
+            return
+        hass.async_run_hass_job(
+            action,
+            {
+                "trigger": {
+                    CONF_PLATFORM: "device",
+                    CONF_DOMAIN: DOMAIN,
+                    CONF_DEVICE_ID: config[CONF_DEVICE_ID],
+                    CONF_TYPE: config[CONF_TYPE],
+                    "event": event,
+                }
+            },
+        )
+
+    return hass.bus.async_listen(event_type, _handle_event)
