@@ -101,17 +101,18 @@ async def async_attach_trigger(
         # Filter to the specific person this device represents
         if person_id and event.data.get(ATTR_PERSON_ENTITY_ID) != person_id:
             return
-        hass.async_run_hass_job(
-            action,
-            {
-                "trigger": {
-                    CONF_PLATFORM: "device",
-                    CONF_DOMAIN: DOMAIN,
-                    CONF_DEVICE_ID: config[CONF_DEVICE_ID],
-                    CONF_TYPE: config[CONF_TYPE],
-                    "event": event,
+        hass.async_create_task(
+            action(
+                {
+                    "trigger": {
+                        CONF_PLATFORM: "device",
+                        CONF_DOMAIN: DOMAIN,
+                        CONF_DEVICE_ID: config[CONF_DEVICE_ID],
+                        CONF_TYPE: config[CONF_TYPE],
+                        "event": event,
+                    }
                 }
-            },
+            )
         )
 
     return hass.bus.async_listen(event_type, _handle_event)
