@@ -26,6 +26,7 @@ from .const import (
     ATTR_PREVIOUS_COUNTRY,
     ATTR_SPEED,
     ATTR_SPEED_MPH,
+    ARRIVAL_CONFIRM_SPEED_KMH,
     DOMAIN,
     EVENT_CALENDAR_ARRIVED,
     EVENT_CALENDAR_DEPARTED,
@@ -189,16 +190,30 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             cached[ATTR_CALENDAR_EVENT] = event_title
             self._push(entity_id, cached)
 
-            # Confirm any pending arrival — person is still here on this update.
+            # Confirm any pending arrival — person is still here on this update
+            # AND is travelling below the "clearly driving through" threshold.
             if entity_id in self._pending_arrival:
-                p = self._pending_arrival.pop(entity_id)
-                _LOGGER.debug(
-                    "%s: confirmed arrival in %s (pending cleared)", entity_id, p["city"]
+                still_moving = (
+                    speed_kmh is not None
+                    and speed_kmh >= ARRIVAL_CONFIRM_SPEED_KMH
                 )
-                self._fire_arrived(
-                    entity_id, p["city"], p["old_city"],
-                    p["country"], p["country_code"], lat, lon,
-                )
+                if still_moving:
+                    _LOGGER.debug(
+                        "%s: still inside %s bbox but speed %.1f km/h ≥ %.0f — "
+                        "keeping arrival pending",
+                        entity_id, self._pending_arrival[entity_id]["city"],
+                        speed_kmh, ARRIVAL_CONFIRM_SPEED_KMH,
+                    )
+                else:
+                    p = self._pending_arrival.pop(entity_id)
+                    _LOGGER.debug(
+                        "%s: confirmed arrival in %s (speed %.1f km/h)",
+                        entity_id, p["city"], speed_kmh or 0,
+                    )
+                    self._fire_arrived(
+                        entity_id, p["city"], p["old_city"],
+                        p["country"], p["country_code"], lat, lon,
+                    )
             return
 
         # ── Outside bbox: go to 'moving' immediately ─────────────────────
