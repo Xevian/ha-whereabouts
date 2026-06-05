@@ -28,6 +28,7 @@ from .const import (
     ATTR_SPEED_MPH,
     ARRIVAL_CONFIRM_SPEED_KMH,
     DOMAIN,
+    MIN_BBOX_DEGREES,
     EVENT_CALENDAR_ARRIVED,
     EVENT_CALENDAR_DEPARTED,
     EVENT_CITY_ARRIVED,
@@ -516,12 +517,14 @@ def _cap_bbox(
     lat: float,
     lon: float,
 ) -> list[str] | None:
-    """Return the bbox unchanged if small, or replace it with a fixed-size box.
+    """Clamp a Nominatim bounding box to sensible min/max sizes.
 
-    Nominatim sometimes returns the boundary of a large administrative area
-    (e.g. Greater London, Cotswold District) whose bbox can span 50+ km.
-    Capping it to MAX_BBOX_DEGREES centred on the user's GPS guarantees a
-    re-geocode after at most ~11 km of movement.
+    Upper cap (MAX_BBOX_DEGREES): prevents getting stuck inside large
+    administrative areas like Greater London or Cotswold District.
+
+    Lower floor (MIN_BBOX_DEGREES): prevents rapid moving↔village oscillation
+    when Nominatim returns a tiny hamlet bbox and indoor GPS drift (10–100 m)
+    constantly pushes the person outside it.
     """
     if boundingbox is None:
         return None
@@ -530,26 +533,36 @@ def _cap_bbox(
     except (TypeError, ValueError):
         return None
 
-    if (
-        (max_lat - min_lat) <= MAX_BBOX_DEGREES * 2
-        and (max_lon - min_lon) <= MAX_BBOX_DEGREES * 2
-    ):
-        return boundingbox  # Already small enough — keep as-is.
+    lat_span = max_lat - min_lat
+    lon_span = max_lon - min_lon
 
-    _LOGGER.debug(
-        "Capping oversized bbox (%.3f°×%.3f°) to %.2f° centred on (%.5f, %.5f)",
-        max_lat - min_lat,
-        max_lon - min_lon,
-        MAX_BBOX_DEGREES,
-        lat,
-        lon,
-    )
-    return [
-        str(lat - MAX_BBOX_DEGREES),
-        str(lat + MAX_BBOX_DEGREES),
-        str(lon - MAX_BBOX_DEGREES),
-        str(lon + MAX_BBOX_DEGREES),
-    ]
+    # ── Upper cap ─────────────────────────────────────────────────────────
+    if lat_span > MAX_BBOX_DEGREES * 2 or lon_span > MAX_BBOX_DEGREES * 2:
+        _LOGGER.debug(
+            "Capping oversized bbox (%.3f°×%.3f°) to %.2f° centred on (%.5f, %.5f)",
+            lat_span, lon_span, MAX_BBOX_DEGREES, lat, lon,
+        )
+        return [
+            str(lat - MAX_BBOX_DEGREES),
+            str(lat + MAX_BBOX_DEGREES),
+            str(lon - MAX_BBOX_DEGREES),
+            str(lon + MAX_BBOX_DEGREES),
+        ]
+
+    # ── Lower floor ───────────────────────────────────────────────────────
+    if lat_span < MIN_BBOX_DEGREES * 2 or lon_span < MIN_BBOX_DEGREES * 2:
+        _LOGGER.debug(
+            "Expanding undersized bbox (%.4f°×%.4f°) to %.3f° centred on (%.5f, %.5f)",
+            lat_span, lon_span, MIN_BBOX_DEGREES, lat, lon,
+        )
+        return [
+            str(lat - MIN_BBOX_DEGREES),
+            str(lat + MIN_BBOX_DEGREES),
+            str(lon - MIN_BBOX_DEGREES),
+            str(lon + MIN_BBOX_DEGREES),
+        ]
+
+    return boundingbox
 
 
 def _within_bbox(lat: float, lon: float, boundingbox: list[str]) -> bool:

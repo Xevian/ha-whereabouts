@@ -70,4 +70,10 @@ ARRIVAL_CONFIRM_SPEED_KMH = 25.0
 # so the sensor can never get "stuck" inside a huge administrative area.
 MAX_BBOX_DEGREES = 0.10
 
+# Minimum bounding box half-span in degrees (~800 m at UK latitudes).
+# Nominatim returns tiny bboxes for hamlets and villages; without a floor,
+# indoor GPS drift (10–100 m) constantly kicks the person outside the box,
+# causing rapid moving ↔ village oscillation.
+MIN_BBOX_DEGREES = 0.008
+
 PLATFORMS = ["sensor", "device_tracker"]
