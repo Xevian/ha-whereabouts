@@ -18,15 +18,17 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 # Address keys tried in order — first match wins.
-# "suburb" sits between city and town: at zoom=12 it catches London
-# neighbourhoods (Westminster, Hackney…) that would otherwise return the
-# large "Greater London" city entry.
+# "suburb" sits between city and town: catches named London neighbourhoods
+# (Westminster, Hackney…) that would otherwise return "Greater London".
 # "municipality" covers some European cities not tagged as city/town.
 _CITY_ADDRESS_KEYS = ("city", "suburb", "municipality", "town", "village", "hamlet")
 
+# place_types that warrant a second pass at lower zoom to find the parent town.
+_RURAL_PLACE_TYPES = {"village", "hamlet"}
+
 
 class NominatimGeocoder:
-    """Async reverse geocoder backed by Nominatim (zoom=10, city/town level)."""
+    """Async reverse geocoder backed by Nominatim."""
 
     def __init__(self, session: aiohttp.ClientSession) -> None:
         self._session = session
@@ -36,17 +38,52 @@ class NominatimGeocoder:
     ) -> dict[str, Any] | None:
         """Return normalised place data for (lat, lon), or None.
 
+        Two-pass strategy:
+          Pass 1 — zoom=13 (street level): precise bbox + exact settlement name.
+          Pass 2 — zoom=10 (town level): only made when pass 1 returns a village
+                   or hamlet.  The parent town name replaces the hamlet name while
+                   the tighter zoom=13 bounding box is kept for cache accuracy.
+
+        This means cities (Gloucester, Bristol…) make one API call; rural
+        locations (Upton Scudamore → Warminster) make two.
+
         Returns:
             {
                 "city": str,
-                "boundingbox": list[str] | None,  # [min_lat, max_lat, min_lon, max_lon]
+                "boundingbox": list[str] | None,
                 "osm_id": int | None,
-                "place_type": str | None,          # "city", "town", "village", "hamlet"
-                "country": str | None,             # e.g. "France"
-                "country_code": str | None,        # ISO 3166-1 alpha-2, e.g. "fr"
+                "place_type": str | None,
+                "country": str | None,
+                "country_code": str | None,
             }
         """
-        url = NOMINATIM_URL.format(lat=lat, lon=lon)
+        result = await self._call(lat, lon, zoom=13)
+        if result is None:
+            return None
+
+        if result["place_type"] in _RURAL_PLACE_TYPES:
+            _LOGGER.debug(
+                "(%.6f, %.6f) resolved to %s %r — trying zoom=10 for parent town",
+                lat, lon, result["place_type"], result["city"],
+            )
+            parent = await self._call(lat, lon, zoom=10)
+            if parent and parent["place_type"] not in _RURAL_PLACE_TYPES:
+                _LOGGER.debug(
+                    "Parent town resolved: %r → using %r as city name",
+                    result["city"], parent["city"],
+                )
+                # Keep zoom=13 bbox (tighter / more accurate for caching)
+                # but adopt the parent's human-readable name and place type.
+                result["city"] = parent["city"]
+                result["place_type"] = parent["place_type"]
+
+        return result
+
+    async def _call(
+        self, lat: float, lon: float, zoom: int
+    ) -> dict[str, Any] | None:
+        """Make one Nominatim reverse-geocode request and return parsed result."""
+        url = NOMINATIM_URL.format(lat=lat, lon=lon, zoom=zoom)
         headers = {"User-Agent": NOMINATIM_USER_AGENT}
 
         try:
@@ -57,29 +94,25 @@ class NominatimGeocoder:
             ) as response:
                 if response.status != 200:
                     _LOGGER.warning(
-                        "Nominatim returned HTTP %s for (%.6f, %.6f)",
-                        response.status,
-                        lat,
-                        lon,
+                        "Nominatim returned HTTP %s for (%.6f, %.6f) zoom=%d",
+                        response.status, lat, lon, zoom,
                     )
                     return None
-                # content_type=None bypasses the MIME check — Nominatim
-                # occasionally returns text/html even for valid JSON payloads.
                 data: dict[str, Any] = await response.json(content_type=None)
 
         except asyncio.TimeoutError:
             _LOGGER.warning(
-                "Nominatim request timed out for (%.6f, %.6f)", lat, lon
+                "Nominatim request timed out for (%.6f, %.6f) zoom=%d", lat, lon, zoom,
             )
             return None
         except aiohttp.ClientError as err:
             _LOGGER.warning(
-                "Nominatim network error for (%.6f, %.6f): %s", lat, lon, err
+                "Nominatim network error for (%.6f, %.6f) zoom=%d: %s", lat, lon, zoom, err,
             )
             return None
         except Exception:
             _LOGGER.exception(
-                "Unexpected error calling Nominatim for (%.6f, %.6f)", lat, lon
+                "Unexpected error calling Nominatim for (%.6f, %.6f) zoom=%d", lat, lon, zoom,
             )
             return None
 
