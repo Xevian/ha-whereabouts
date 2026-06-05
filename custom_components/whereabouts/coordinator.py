@@ -101,6 +101,10 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._event_location_cache: dict[str, tuple[float, float]] = {}
         # Which calendar event title each person is currently at (for detecting transitions).
         self._at_event: dict[str, str | None] = {}
+        # Pending city arrivals — geocoded but not yet confirmed by a subsequent
+        # GPS update inside the same bbox.  Discarded if the person moves on
+        # before the next update, preventing drive-through "arrival" spam.
+        self._pending_arrival: dict[str, dict[str, Any]] = {}
 
         super().__init__(
             hass,
@@ -184,9 +188,29 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             cached[ATTR_DIRECTION] = direction
             cached[ATTR_CALENDAR_EVENT] = event_title
             self._push(entity_id, cached)
+
+            # Confirm any pending arrival — person is still here on this update.
+            if entity_id in self._pending_arrival:
+                p = self._pending_arrival.pop(entity_id)
+                _LOGGER.debug(
+                    "%s: confirmed arrival in %s (pending cleared)", entity_id, p["city"]
+                )
+                self._fire_arrived(
+                    entity_id, p["city"], p["old_city"],
+                    p["country"], p["country_code"], lat, lon,
+                )
             return
 
         # ── Outside bbox: go to 'moving' immediately ─────────────────────
+        # Discard any pending arrival — person left before the next bbox
+        # confirmation, so they were just passing through.
+        if entity_id in self._pending_arrival:
+            discarded = self._pending_arrival.pop(entity_id)
+            _LOGGER.debug(
+                "%s: discarding pending arrival in %s (left bbox before confirmation)",
+                entity_id, discarded["city"],
+            )
+
         old_state = (cached or {}).get("state")
         moving = _moving_state(lat, lon, cached, speed_kmh, speed_mph, bearing, direction, event_title)
         self._cache[entity_id] = moving
@@ -244,14 +268,26 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cache[entity_id] = entry
         self._push(entity_id, entry)
 
-        # ── Fire city events ──────────────────────────────────────────────
+        # ── City events ───────────────────────────────────────────────────
         if old_city is not None and old_city != new_city:
+            # Departed fires immediately — person has definitely left.
             self._fire_departed(entity_id, old_city, old_country, lat, lon)
-            self._fire_arrived(entity_id, new_city, old_city, new_country, new_country_code, lat, lon)
+            # Arrived is held as pending until the next GPS update confirms
+            # the person is still inside this bbox (filters out drive-throughs).
+            self._pending_arrival[entity_id] = {
+                "city": new_city,
+                "old_city": old_city,
+                "country": new_country,
+                "country_code": new_country_code,
+            }
+            _LOGGER.debug(
+                "%s: pending arrival in %s (waiting for bbox confirmation)", entity_id, new_city
+            )
         elif old_city is None:
+            # First detection at startup — fire immediately, no confirmation needed.
             self._fire_arrived(entity_id, new_city, None, new_country, new_country_code, lat, lon)
 
-        # ── Fire country events ───────────────────────────────────────────
+        # ── Country events ────────────────────────────────────────────────
         if old_country is not None and old_country != new_country:
             self._fire_country_departed(entity_id, old_country, lat, lon)
             self._fire_country_arrived(entity_id, new_country, new_country_code, old_country, lat, lon)
