@@ -63,8 +63,8 @@ NOMINATIM_TIMEOUT_SECONDS = 10
 
 # Speed below which a pending city arrival is confirmed.
 # Above this the person is clearly in transit even if inside the bbox.
-# 25 km/h ≈ 15 mph — covers slow traffic / parking, rejects motorway driving.
-ARRIVAL_CONFIRM_SPEED_KMH = 25.0
+# 10 km/h ≈ 6 mph — covers parked / walking from car, rejects all driving.
+ARRIVAL_CONFIRM_SPEED_KMH = 10.0
 
 # Maximum bounding box half-span in degrees (~11 km at UK latitudes).
 # Any bbox larger than this is capped, centred on the user's GPS position,
