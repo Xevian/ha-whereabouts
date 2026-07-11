@@ -156,7 +156,7 @@ After setup, go to **Settings → Devices & Services → Whereabouts → Configu
 
 1. **Real-time updates** — `async_track_state_change_event` fires on every GPS position change of a tracked person
 2. **Bounding-box cache** — if the new position falls inside the cached bbox for the current city, no API call is made
-3. **Nominatim reverse geocode** — only called when the person leaves the cached bbox (zoom=12 for town/suburb level)
+3. **Nominatim reverse geocode** — only called when the person leaves the cached bbox (zoom=16 street level, so the town is resolved for the exact point; zoom=10 fallback resolves the parent town of villages/hamlets)
 4. **MAX_BBOX cap** — bboxes larger than ~11 km are capped to prevent getting "stuck" in large administrative areas
 5. **Calendar proximity** — haversine distance to the next geocoded event location; switches sensor state and fires event when within radius
 6. **Speed / bearing** — calculated from successive GPS coordinates and elapsed time using the haversine formula

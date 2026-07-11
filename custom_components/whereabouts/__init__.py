@@ -92,7 +92,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Skip if coordinates haven't actually changed — person entities
         # can fire state_changed for zone transitions without moving.
-        if old_state is not None:
+        # Exception: a pending arrival needs a follow-up update to confirm
+        # itself, and a stationary tracker (Wi-Fi lock) can legitimately
+        # report identical coordinates for that confirming fix.
+        if old_state is not None and not coordinator.has_pending_arrival(entity_id):
             if (
                 old_state.attributes.get("latitude") == new_lat
                 and old_state.attributes.get("longitude") == new_lon
