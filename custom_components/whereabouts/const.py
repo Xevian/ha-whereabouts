@@ -50,9 +50,12 @@ ATTR_CALENDAR_EVENT = "calendar_event"
 NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 
 # Nominatim reverse-geocode URL — {zoom} is filled in by the geocoder.
-# zoom=13: street/suburb level — returns the precise local settlement.
-#   Good for cities; returns hamlet names (Boreham, Upton Scudamore) for rural areas.
-# zoom=10: city/town level — used as a fallback when zoom=13 only finds a
+# zoom=16: street level — the address hierarchy is computed for the exact
+#   point, so the town/village keys are correct for where the person actually
+#   is.  Lower zooms snap to the nearest place *node*, which can be km away
+#   and report a neighbouring town (North Town/Aldershot instead of
+#   Farnborough) with a bbox that doesn't contain the person.
+# zoom=10: city/town level — used as a fallback when zoom=16 only finds a
 #   village or hamlet, to resolve the parent town (e.g. Warminster).
 NOMINATIM_URL = (
     "https://nominatim.openstreetmap.org/reverse"
@@ -65,6 +68,13 @@ NOMINATIM_TIMEOUT_SECONDS = 10
 # Above this the person is clearly in transit even if inside the bbox.
 # 10 km/h ≈ 6 mph — covers parked / walking from car, rejects all driving.
 ARRIVAL_CONFIRM_SPEED_KMH = 10.0
+
+# Minimum time a pending arrival must persist before it can be confirmed.
+# Filters "arrivals" from stop-start traffic inside a town: queues and
+# traffic lights clear well within this window (and driving on exits the
+# bbox, discarding the pending arrival), while someone who has genuinely
+# stopped is still there — and still slow — when the window elapses.
+ARRIVAL_CONFIRM_DWELL_SECONDS = 300
 
 # Maximum bounding box half-span in degrees (~11 km at UK latitudes).
 # Any bbox larger than this is capped, centred on the user's GPS position,

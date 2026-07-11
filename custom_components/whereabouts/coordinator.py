@@ -26,6 +26,7 @@ from .const import (
     ATTR_PREVIOUS_COUNTRY,
     ATTR_SPEED,
     ATTR_SPEED_MPH,
+    ARRIVAL_CONFIRM_DWELL_SECONDS,
     ARRIVAL_CONFIRM_SPEED_KMH,
     DOMAIN,
     MIN_BBOX_DEGREES,
@@ -107,6 +108,17 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # GPS update inside the same bbox.  Discarded if the person moves on
         # before the next update, preventing drive-through "arrival" spam.
         self._pending_arrival: dict[str, dict[str, Any]] = {}
+        # Last city announced via a (confirmed) arrived event.  Unlike the
+        # cache (which is wiped to city=None during 'moving' spells), this
+        # survives GPS-drift excursions, so re-geocoding the same place is
+        # not mistaken for a fresh arrival — while a genuine return after a
+        # confirmed departure still announces properly.
+        self._confirmed_city: dict[str, str | None] = {}
+        # Last *different* confirmed city — exposed as previous_city.
+        self._previous_city: dict[str, str | None] = {}
+        # Persons whose departure from _confirmed_city has already fired,
+        # so drive-through geocodes can't fire duplicate departed events.
+        self._departure_announced: set[str] = set()
 
         super().__init__(
             hass,
@@ -114,6 +126,10 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             name=DOMAIN,
             update_interval=None,  # Event-driven; no polling.
         )
+
+    def has_pending_arrival(self, entity_id: str) -> bool:
+        """True while an arrival is waiting for its confirming GPS update."""
+        return entity_id in self._pending_arrival
 
     # ------------------------------------------------------------------
     # Startup
@@ -191,26 +207,44 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             cached[ATTR_CALENDAR_EVENT] = event_title
             self._push(entity_id, cached)
 
-            # Confirm any pending arrival — person is still here on this update
-            # AND is travelling below the "clearly driving through" threshold.
+            # Confirm any pending arrival — person is still here on this update,
+            # is travelling below the "clearly driving through" threshold, AND
+            # has been here long enough that this isn't a stop-start jam.
             if entity_id in self._pending_arrival:
+                pending = self._pending_arrival[entity_id]
                 still_moving = (
                     speed_kmh is not None
                     and speed_kmh >= ARRIVAL_CONFIRM_SPEED_KMH
                 )
+                dwell = (now - pending["since"]).total_seconds()
                 if still_moving:
                     _LOGGER.debug(
                         "%s: still inside %s bbox but speed %.1f km/h ≥ %.0f — "
                         "keeping arrival pending",
-                        entity_id, self._pending_arrival[entity_id]["city"],
+                        entity_id, pending["city"],
                         speed_kmh, ARRIVAL_CONFIRM_SPEED_KMH,
+                    )
+                elif dwell < ARRIVAL_CONFIRM_DWELL_SECONDS:
+                    _LOGGER.debug(
+                        "%s: inside %s bbox at %.1f km/h but only %.0fs since "
+                        "detection (< %ds) — keeping arrival pending",
+                        entity_id, pending["city"], speed_kmh or 0,
+                        dwell, ARRIVAL_CONFIRM_DWELL_SECONDS,
                     )
                 else:
                     p = self._pending_arrival.pop(entity_id)
                     _LOGGER.debug(
-                        "%s: confirmed arrival in %s (speed %.1f km/h)",
-                        entity_id, p["city"], speed_kmh or 0,
+                        "%s: confirmed arrival in %s (speed %.1f km/h, "
+                        "pending for %.0fs)",
+                        entity_id, p["city"], speed_kmh or 0, dwell,
                     )
+                    confirmed = self._confirmed_city.get(entity_id)
+                    if confirmed is not None and confirmed != p["city"]:
+                        self._previous_city[entity_id] = confirmed
+                    self._confirmed_city[entity_id] = p["city"]
+                    self._departure_announced.discard(entity_id)
+                    cached["previous_city"] = self._previous_city.get(entity_id)
+                    self._push(entity_id, cached)
                     self._fire_arrived(
                         entity_id, p["city"], p["old_city"],
                         p["country"], p["country_code"], lat, lon,
@@ -260,7 +294,12 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         new_city: str = geo["city"]
         new_country: str | None = geo["country"]
         new_country_code: str | None = geo["country_code"]
-        old_city: str | None = cached.get("city") if cached else None
+        # Compare against the last *confirmed* city, not the cache: the cache
+        # is wiped to city=None while 'moving', so a same-place re-geocode
+        # after a GPS-drift excursion would otherwise look like a brand-new
+        # arrival.  (Any pending arrival was already discarded on bbox exit,
+        # so _pending_arrival is always empty at this point.)
+        confirmed: str | None = self._confirmed_city.get(entity_id)
         old_country: str | None = cached.get("country") if cached else None
 
         entry: dict[str, Any] = {
@@ -271,7 +310,7 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "latitude": lat,
             "longitude": lon,
             "state": new_city,
-            "previous_city": old_city,
+            "previous_city": self._previous_city.get(entity_id),
             "country": new_country,
             "country_code": new_country_code,
             "previous_country": old_country,
@@ -285,23 +324,44 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._push(entity_id, entry)
 
         # ── City events ───────────────────────────────────────────────────
-        if old_city is not None and old_city != new_city:
-            # Departed fires immediately — person has definitely left.
-            self._fire_departed(entity_id, old_city, old_country, lat, lon)
-            # Arrived is held as pending until the next GPS update confirms
-            # the person is still inside this bbox (filters out drive-throughs).
+        if confirmed is None:
+            # First detection at startup — fire immediately, no confirmation needed.
+            self._confirmed_city[entity_id] = new_city
+            self._fire_arrived(entity_id, new_city, None, new_country, new_country_code, lat, lon)
+        elif new_city != confirmed:
+            # Departed fires once per departure — person has definitely left.
+            # Later drive-through geocodes must not repeat it.
+            if entity_id not in self._departure_announced:
+                self._departure_announced.add(entity_id)
+                self._fire_departed(entity_id, confirmed, old_country, lat, lon)
+            # Arrived is held as pending until a later GPS update confirms the
+            # person is still inside this bbox, slow, and has dwelt long
+            # enough (filters out drive-throughs and stop-start traffic).
             self._pending_arrival[entity_id] = {
                 "city": new_city,
-                "old_city": old_city,
+                "old_city": confirmed,
                 "country": new_country,
                 "country_code": new_country_code,
+                "since": now,
             }
             _LOGGER.debug(
                 "%s: pending arrival in %s (waiting for bbox confirmation)", entity_id, new_city
             )
-        elif old_city is None:
-            # First detection at startup — fire immediately, no confirmation needed.
-            self._fire_arrived(entity_id, new_city, None, new_country, new_country_code, lat, lon)
+        elif entity_id in self._departure_announced:
+            # Back in the city whose departure was announced (round trip that
+            # never confirmed anywhere else) — announce the return, with the
+            # same confirmation rules as any other arrival.
+            self._pending_arrival[entity_id] = {
+                "city": new_city,
+                "old_city": self._previous_city.get(entity_id),
+                "country": new_country,
+                "country_code": new_country_code,
+                "since": now,
+            }
+            _LOGGER.debug(
+                "%s: pending return to %s (waiting for bbox confirmation)", entity_id, new_city
+            )
+        # else: same city re-geocode after GPS drift — nothing to announce.
 
         # ── Country events ────────────────────────────────────────────────
         if old_country is not None and old_country != new_country:
@@ -536,6 +596,23 @@ def _cap_bbox(
     lat_span = max_lat - min_lat
     lon_span = max_lon - min_lon
 
+    # ── Containment guard ─────────────────────────────────────────────────
+    # Reverse geocoding can snap to a place node kilometres away whose bbox
+    # doesn't contain the person at all.  Caching it would make every
+    # subsequent GPS fix look like "left the city" → endless re-arrivals.
+    if not (min_lat <= lat <= max_lat and min_lon <= lon <= max_lon):
+        _LOGGER.debug(
+            "Bbox [%f..%f, %f..%f] does not contain (%.5f, %.5f) — "
+            "replacing with %.3f° box centred on the person",
+            min_lat, max_lat, min_lon, max_lon, lat, lon, MIN_BBOX_DEGREES,
+        )
+        return [
+            str(lat - MIN_BBOX_DEGREES),
+            str(lat + MIN_BBOX_DEGREES),
+            str(lon - MIN_BBOX_DEGREES),
+            str(lon + MIN_BBOX_DEGREES),
+        ]
+
     # ── Upper cap ─────────────────────────────────────────────────────────
     if lat_span > MAX_BBOX_DEGREES * 2 or lon_span > MAX_BBOX_DEGREES * 2:
         _LOGGER.debug(
@@ -679,7 +756,9 @@ def _moving_state(
         "latitude": lat,
         "longitude": lon,
         "state": STATE_MOVING,
-        "previous_city": cached.get("city") if cached else None,
+        # "or previous_city" keeps the value alive across chained moving
+        # states (a moving cache entry has city=None).
+        "previous_city": (cached.get("city") or cached.get("previous_city")) if cached else None,
         # Preserve last known country while in transit — useful for templates.
         "country": cached.get("country") if cached else None,
         "country_code": cached.get("country_code") if cached else None,

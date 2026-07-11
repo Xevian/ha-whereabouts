@@ -18,10 +18,13 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 # Address keys tried in order — first match wins.
-# "suburb" sits between city and town: catches named London neighbourhoods
-# (Westminster, Hackney…) that would otherwise return "Greater London".
+# "town" outranks "city": in UK two-tier council areas Nominatim puts the
+# borough/district (Rushmoor, Waverley…) in "city" while the actual
+# settlement (Farnborough, Farnham…) is in "town".  Real cities
+# (Bristol, Gloucester…) carry no "town" key, so "city" still wins there.
+# "suburb" catches named neighbourhoods when no city/town key is present.
 # "municipality" covers some European cities not tagged as city/town.
-_CITY_ADDRESS_KEYS = ("city", "suburb", "municipality", "town", "village", "hamlet")
+_CITY_ADDRESS_KEYS = ("town", "city", "suburb", "municipality", "village", "hamlet")
 
 # place_types that warrant a second pass at lower zoom to find the parent town.
 _RURAL_PLACE_TYPES = {"village", "hamlet"}
@@ -39,10 +42,13 @@ class NominatimGeocoder:
         """Return normalised place data for (lat, lon), or None.
 
         Two-pass strategy:
-          Pass 1 — zoom=13 (street level): precise bbox + exact settlement name.
+          Pass 1 — zoom=16 (street level): the address hierarchy is computed
+                   for the exact point.  Lower zooms snap to the nearest place
+                   *node*, which can sit kilometres away and carry the wrong
+                   town — and a bbox that doesn't even contain the person.
           Pass 2 — zoom=10 (town level): only made when pass 1 returns a village
                    or hamlet.  The parent town name replaces the hamlet name while
-                   the tighter zoom=13 bounding box is kept for cache accuracy.
+                   the tighter zoom=16 bounding box is kept for cache accuracy.
 
         This means cities (Gloucester, Bristol…) make one API call; rural
         locations (Upton Scudamore → Warminster) make two.
@@ -57,7 +63,7 @@ class NominatimGeocoder:
                 "country_code": str | None,
             }
         """
-        result = await self._call(lat, lon, zoom=13)
+        result = await self._call(lat, lon, zoom=16)
         if result is None:
             return None
 
@@ -72,7 +78,7 @@ class NominatimGeocoder:
                     "Parent town resolved: %r → using %r as city name",
                     result["city"], parent["city"],
                 )
-                # Keep zoom=13 bbox (tighter / more accurate for caching)
+                # Keep zoom=16 bbox (tighter / more accurate for caching)
                 # but adopt the parent's human-readable name and place type.
                 result["city"] = parent["city"]
                 result["place_type"] = parent["place_type"]
