@@ -1,7 +1,7 @@
 {
   "domain": "whereabouts",
   "name": "Whereabouts",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "documentation": "https://github.com/Xevian/ha-whereabouts",
   "issue_tracker": "https://github.com/Xevian/ha-whereabouts/issues",
   "codeowners": ["@Xevian"],

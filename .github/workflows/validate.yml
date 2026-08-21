@@ -27,6 +27,8 @@ jobs:
         with:
           python-version: "3.12"
       # No dependencies: the tests stub Home Assistant and run on stdlib alone.
+      - name: Manifest
+        run: python tests/test_manifest.py
       - name: Zone layer
         run: python tests/test_zone_layer.py
       - name: Hub layer
