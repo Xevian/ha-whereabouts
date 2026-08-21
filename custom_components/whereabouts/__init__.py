@@ -61,6 +61,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         person_calendars=entry.data.get(CONF_PERSON_CALENDARS, {}),
         event_radius_m=entry.data.get(CONF_EVENT_RADIUS_M, DEFAULT_EVENT_RADIUS_M),
         track_hubs=entry.data.get(CONF_TRACK_HUBS, DEFAULT_TRACK_HUBS),
+        config_entry=entry,
     )
 
     # Seed initial state and geocode any person that already has GPS coords.

@@ -7,6 +7,7 @@ import math
 from datetime import datetime
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -113,6 +114,7 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         person_calendars: dict[str, str | None] | None = None,
         event_radius_m: float = 300,
         track_hubs: bool = False,
+        config_entry: ConfigEntry | None = None,
     ) -> None:
         self._person_entity_ids = person_entity_ids
         self._geocoder = NominatimGeocoder(async_get_clientsession(hass))
@@ -179,6 +181,10 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER,
             name=DOMAIN,
             update_interval=None,  # Event-driven; no polling.
+            # Passed explicitly rather than left to DataUpdateCoordinator's
+            # ContextVar fallback, which is deprecated and only works because
+            # this happens to be constructed inside async_setup_entry.
+            config_entry=config_entry,
         )
 
     def has_pending_arrival(self, entity_id: str) -> bool:

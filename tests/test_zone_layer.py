@@ -172,10 +172,12 @@ async def setup_listener():
 
     hass.config_entries = ConfigEntries()
 
-    await whereabouts_init.async_setup_entry(hass, Entry())
+    entry = Entry()
+    await whereabouts_init.async_setup_entry(hass, entry)
 
     coordinator = hass.data[const.DOMAIN]["test"]
     coordinator._check_calendar_proximity = lambda *a, **k: _no_calendar_event()
+    coordinator._test_entry = entry
     hass.bus.fired.clear()
     return captured["cb"], hass, coordinator
 
@@ -330,6 +332,17 @@ def test_no_zones_leaves_behaviour_unchanged():
         )
         assert place_of(coordinator)[:2] == ("Gloucester", "city")
         assert zone_events(hass) == []
+
+    asyncio.run(run())
+
+
+def test_setup_passes_the_config_entry_to_the_coordinator():
+    """Without this, DataUpdateCoordinator falls back to a deprecated ContextVar
+    that only resolves because construction happens inside async_setup_entry."""
+
+    async def run():
+        _, _, coordinator = await setup_listener()
+        assert coordinator.config_entry is coordinator._test_entry
 
     asyncio.run(run())
 

@@ -135,10 +135,13 @@ def _install() -> None:
         def __class_getitem__(cls, item):
             return cls
 
-        def __init__(self, hass, logger, name=None, update_interval=None):
+        def __init__(
+            self, hass, logger, name=None, update_interval=None, config_entry=None
+        ):
             self.hass = hass
             self.data = None
             self.last_update_success = True
+            self.config_entry = config_entry
 
         def async_set_updated_data(self, data) -> None:
             self.data = data
