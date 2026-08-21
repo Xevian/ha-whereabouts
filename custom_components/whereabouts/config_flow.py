@@ -60,7 +60,6 @@ def _build_main_schema(
             ),
             vol.Optional(
                 CONF_EVENT_RADIUS_M,
-    CONF_TRACK_HUBS,
                 default=default_radius,
             ): selector.selector(
                 {
@@ -72,6 +71,10 @@ def _build_main_schema(
                     }
                 }
             ),
+            vol.Optional(
+                CONF_TRACK_HUBS,
+                default=default_track_hubs,
+            ): selector.selector({"boolean": {}}),
         }
     )
 
@@ -121,9 +124,9 @@ class WhereaboutsConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._persons = persons
                 self._scan_interval = scan_interval
                 self._event_radius_m = user_input.get(
-                    CONF_EVENT_RADIUS_M,
-    CONF_TRACK_HUBS, DEFAULT_EVENT_RADIUS_M
+                    CONF_EVENT_RADIUS_M, DEFAULT_EVENT_RADIUS_M
                 )
+                self._track_hubs = user_input.get(CONF_TRACK_HUBS, DEFAULT_TRACK_HUBS)
                 self._remaining_persons = list(persons)
                 self._person_calendars = {}
                 return await self.async_step_calendars()
@@ -218,9 +221,9 @@ class WhereaboutsOptionsFlow(OptionsFlow):
                 self._persons = persons
                 self._scan_interval = scan_interval
                 self._event_radius_m = user_input.get(
-                    CONF_EVENT_RADIUS_M,
-    CONF_TRACK_HUBS, DEFAULT_EVENT_RADIUS_M
+                    CONF_EVENT_RADIUS_M, DEFAULT_EVENT_RADIUS_M
                 )
+                self._track_hubs = user_input.get(CONF_TRACK_HUBS, DEFAULT_TRACK_HUBS)
                 self._remaining_persons = list(persons)
                 # Carry existing calendar assignments forward; new persons get None.
                 existing_calendars: dict[str, str | None] = current.get(

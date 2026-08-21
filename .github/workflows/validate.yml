@@ -26,13 +26,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # No dependencies: the tests stub Home Assistant and run on stdlib alone.
+      # The config flow tests need voluptuous, which the flow itself uses.
+      # Everything else stubs Home Assistant and runs on stdlib alone.
+      - name: Install test dependencies
+        run: pip install voluptuous
       - name: Manifest
         run: python tests/test_manifest.py
       - name: Zone layer
         run: python tests/test_zone_layer.py
       - name: Hub layer
         run: python tests/test_hub_layer.py
+      - name: Config flow
+        run: python tests/test_config_flow.py
 
   hassfest:
     name: hassfest (HA integration checker)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "whereabouts"
-INTEGRATION_VERSION = "1.5.0"
+INTEGRATION_VERSION = "1.5.1"
 
 # Configuration keys stored in ConfigEntry.data
 CONF_PERSONS = "person_entities"
