@@ -404,6 +404,10 @@ def _main() -> int:
         except AssertionError as err:
             failures.append((name, err))
             print(f"FAIL  {name}\n      {err}")
+        except Exception as err:  # noqa: BLE001 - a crash is a failure too
+            failures.append(name)
+            print("ERROR " + name)
+            print("      " + type(err).__name__ + ": " + str(err))
         else:
             print(f"pass  {name}")
 
