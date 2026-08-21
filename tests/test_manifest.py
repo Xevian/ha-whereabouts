@@ -56,6 +56,15 @@ def test_http_dependency_is_declared():
     assert "http" in MANIFEST["dependencies"]
 
 
+def test_manifest_keys_are_sorted():
+    """hassfest requires domain, name, then alphabetical — and fails the build."""
+    keys = list(MANIFEST)
+    expected = ["domain", "name"] + sorted(
+        k for k in keys if k not in ("domain", "name")
+    )
+    assert keys == expected, f"expected order {expected}, got {keys}"
+
+
 def _main() -> int:
     tests = [
         (name, obj)
