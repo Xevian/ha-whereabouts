@@ -1,4 +1,4 @@
-"""Manifest consistency checks.
+"""Manifest and packaging checks.
 
     python tests/test_manifest.py
 
@@ -17,6 +17,8 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import struct  # noqa: E402
 
 from stub_hass import PACKAGE_DIR, load  # noqa: E402
 
@@ -54,6 +56,22 @@ def test_http_dependency_is_declared():
     map-pin icons cannot be served unless it is set up first.
     """
     assert "http" in MANIFEST["dependencies"]
+
+
+def test_brand_icon_is_present_and_square():
+    """HACS validation requires a brand directory with at least an icon.png.
+
+    Without it the repository fails the brands check and cannot be listed in
+    the default HACS store. 256x256 is the Home Assistant brands convention.
+    """
+    icon = os.path.join(PACKAGE_DIR, "brand", "icon.png")
+    assert os.path.isfile(icon), "custom_components/whereabouts/brand/icon.png missing"
+
+    with open(icon, "rb") as handle:
+        header = handle.read(24)
+    assert header[:8] == bytes.fromhex("89504e470d0a1a0a"), "not a PNG"
+    width, height = struct.unpack(">II", header[16:24])
+    assert (width, height) == (256, 256), f"expected 256x256, got {width}x{height}"
 
 
 def test_manifest_keys_are_sorted():
