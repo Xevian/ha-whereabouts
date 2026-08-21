@@ -6,7 +6,7 @@
   "issue_tracker": "https://github.com/Xevian/ha-whereabouts/issues",
   "codeowners": ["@Xevian"],
   "requirements": [],
-  "dependencies": [],
+  "dependencies": ["http"],
   "after_dependencies": ["person", "zone"],
   "config_flow": true,
   "iot_class": "cloud_polling",

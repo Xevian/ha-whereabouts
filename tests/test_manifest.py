@@ -47,6 +47,15 @@ def test_zone_dependency_is_declared():
     assert "zone" in MANIFEST["after_dependencies"]
 
 
+def test_http_dependency_is_declared():
+    """__init__ registers static paths via hass.http, which hassfest enforces.
+
+    http is a hard dependency rather than an after_dependency: the bundled
+    map-pin icons cannot be served unless it is set up first.
+    """
+    assert "http" in MANIFEST["dependencies"]
+
+
 def _main() -> int:
     tests = [
         (name, obj)
