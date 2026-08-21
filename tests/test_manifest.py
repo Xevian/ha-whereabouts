@@ -83,6 +83,24 @@ def test_manifest_keys_are_sorted():
     assert keys == expected, f"expected order {expected}, got {keys}"
 
 
+def test_hacs_minimum_matches_the_readme():
+    """HACS enforces this key, so a stale value blocks or misleads installs."""
+    import json
+
+    repo_root = os.path.dirname(os.path.dirname(PACKAGE_DIR))
+    with open(os.path.join(repo_root, "hacs.json"), encoding="utf-8") as handle:
+        hacs = json.load(handle)
+
+    minimum = hacs["homeassistant"]
+    assert re.fullmatch(r"\d+\.\d+\.\d+", minimum), minimum
+
+    with open(os.path.join(repo_root, "README.md"), encoding="utf-8") as handle:
+        readme = handle.read()
+    assert minimum in readme, (
+        f"hacs.json requires HA {minimum} but the README never mentions it"
+    )
+
+
 def _main() -> int:
     tests = [
         (name, obj)

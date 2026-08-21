@@ -20,6 +20,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from stub_hass import PACKAGE_DIR  # noqa: E402
 import stub_hass  # noqa: E402,F401  (installs the fake homeassistant modules)
 
 try:
@@ -193,6 +194,52 @@ def test_submit_handlers_read_every_option():
     assert f"user_input.get({const.CONF_TRACK_HUBS!r}" in source or (
         "user_input.get(CONF_TRACK_HUBS" in source
     ), "track_hubs is never read from user_input"
+
+
+# -- translations ---------------------------------------------------------
+def _load_strings():
+    import json
+
+    root = os.path.dirname(PACKAGE_DIR)
+    with open(os.path.join(PACKAGE_DIR, "strings.json"), encoding="utf-8") as fh:
+        strings = json.load(fh)
+    path = os.path.join(PACKAGE_DIR, "translations", "en.json")
+    with open(path, encoding="utf-8") as fh:
+        english = json.load(fh)
+    return strings, english
+
+
+def test_strings_and_english_translations_match():
+    """en.json is a copy of strings.json; hand-editing one is how they drift."""
+    strings, english = _load_strings()
+    assert strings == english
+
+
+def test_every_schema_field_has_a_label():
+    """A field with no translation renders as its raw key in the UI."""
+    strings, _ = _load_strings()
+    fields = set(schema_keys(config_flow._build_main_schema()))
+
+    for section, step in (("config", "user"), ("options", "settings")):
+        labels = set(strings[section]["step"][step]["data"])
+        missing = fields - labels
+        assert not missing, f"{section}.{step} has no label for {sorted(missing)}"
+
+
+def test_settings_screens_mention_transit_hubs():
+    """The screen holding the toggle should say the toggle is there.
+
+    It previously listed only people, cooldown and radius, which is why the
+    option was hard to find even once it rendered.
+    """
+    strings, _ = _load_strings()
+    menu = strings["options"]["step"]["init"]["menu_options"]["settings"]
+    settings = strings["options"]["step"]["settings"]["description"]
+    setup = strings["config"]["step"]["user"]["description"]
+
+    assert "hub" in menu.lower(), menu
+    for text in (settings, setup):
+        assert "hub" in text.lower(), text
 
 
 def _main() -> int:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
@@ -37,15 +38,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register the bundled icons directory once per HA instance so the
     # device-tracker entity_picture URL resolves correctly on the map.
     if not hass.data.get(_STATIC_REGISTERED_KEY):
-        try:
-            # HA 2024.x+
-            from homeassistant.components.http import StaticPathConfig  # noqa: PLC0415
-            await hass.http.async_register_static_paths(
-                [StaticPathConfig(_STATIC_URL, str(_STATIC_DIR), True)]
-            )
-        except (AttributeError, ImportError):
-            # HA 2023.x fallback
-            hass.http.register_static_path(_STATIC_URL, str(_STATIC_DIR), True)
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(_STATIC_URL, str(_STATIC_DIR), True)]
+        )
         hass.data[_STATIC_REGISTERED_KEY] = True
         _LOGGER.debug("Registered static path %s → %s", _STATIC_URL, _STATIC_DIR)
 

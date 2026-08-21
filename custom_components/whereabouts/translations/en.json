@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Set up Whereabouts",
-        "description": "Select the people to track, how long to wait between geocode calls, and the radius used to detect calendar event venues.",
+        "description": "Select the people to track, how long to wait between geocode calls, the radius used to detect calendar event venues, and whether to track transit hubs. Transit hub tracking names the airport, station or ferry port you are at, using OpenStreetMap. It is optional: when that service is unavailable the sensor simply reports the city instead.",
         "data": {
           "person_entities": "People to track",
           "scan_interval": "Geocode cooldown (minutes)",
@@ -46,13 +46,13 @@
       "init": {
         "title": "Whereabouts options",
         "menu_options": {
-          "settings": "Change settings (people, cooldown, radius)",
+          "settings": "Change settings (people, cooldown, radius, transit hubs)",
           "calendars": "Change calendar assignments"
         }
       },
       "settings": {
         "title": "Whereabouts settings",
-        "description": "Update tracked people, geocode cooldown, and event arrival radius.",
+        "description": "Update tracked people, geocode cooldown, event arrival radius, and transit hub tracking. Transit hub tracking names the airport, station or ferry port you are at, using OpenStreetMap. It is optional: when that service is unavailable the sensor simply reports the city instead.",
         "data": {
           "person_entities": "People to track",
           "scan_interval": "Geocode cooldown (minutes)",
