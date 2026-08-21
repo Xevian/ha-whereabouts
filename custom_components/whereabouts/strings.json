@@ -7,7 +7,8 @@
         "data": {
           "person_entities": "People to track",
           "scan_interval": "Geocode cooldown (minutes)",
-          "event_radius_m": "Event arrival radius (metres)"
+          "event_radius_m": "Event arrival radius (metres)",
+          "track_hubs": "Track transit hubs (airports, stations, ports)"
         }
       },
       "calendars": {
@@ -35,7 +36,9 @@
       "calendar_arrived": "Arrived at a calendar event venue",
       "calendar_departed": "Left a calendar event venue",
       "zone_arrived": "Arrived at a zone",
-      "zone_departed": "Left a zone"
+      "zone_departed": "Left a zone",
+      "hub_arrived": "Arrived at a transit hub",
+      "hub_departed": "Left a transit hub"
     }
   },
   "options": {
@@ -53,7 +56,8 @@
         "data": {
           "person_entities": "People to track",
           "scan_interval": "Geocode cooldown (minutes)",
-          "event_radius_m": "Event arrival radius (metres)"
+          "event_radius_m": "Event arrival radius (metres)",
+          "track_hubs": "Track transit hubs (airports, stations, ports)"
         }
       },
       "calendars": {

@@ -12,7 +12,7 @@ from .const import (
     NOMINATIM_SEARCH_URL,
     NOMINATIM_TIMEOUT_SECONDS,
     NOMINATIM_URL,
-    NOMINATIM_USER_AGENT,
+    USER_AGENT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ class NominatimGeocoder:
     ) -> dict[str, Any] | None:
         """Make one Nominatim reverse-geocode request and return parsed result."""
         url = NOMINATIM_URL.format(lat=lat, lon=lon, zoom=zoom)
-        headers = {"User-Agent": NOMINATIM_USER_AGENT}
+        headers = {"User-Agent": USER_AGENT}
 
         try:
             async with self._session.get(
@@ -131,7 +131,7 @@ class NominatimGeocoder:
         "NEC Birmingham, UK" to GPS coordinates.  Results are cached by the
         coordinator so this is called at most once per unique location string.
         """
-        headers = {"User-Agent": NOMINATIM_USER_AGENT}
+        headers = {"User-Agent": USER_AGENT}
         params = {"q": address, "format": "json", "limit": "1"}
 
         try:

@@ -21,6 +21,8 @@ from .const import (
     EVENT_COUNTRY_ARRIVED,
     EVENT_COUNTRY_DEPARTED,
     EVENT_STARTED_MOVING,
+    EVENT_HUB_ARRIVED,
+    EVENT_HUB_DEPARTED,
     EVENT_ZONE_ARRIVED,
     EVENT_ZONE_DEPARTED,
 )
@@ -36,6 +38,8 @@ _TRIGGER_EVENT: dict[str, str] = {
     "calendar_departed":  EVENT_CALENDAR_DEPARTED,
     "zone_arrived":       EVENT_ZONE_ARRIVED,
     "zone_departed":      EVENT_ZONE_DEPARTED,
+    "hub_arrived":        EVENT_HUB_ARRIVED,
+    "hub_departed":       EVENT_HUB_DEPARTED,
 }
 
 # Minimal schema — no DEVICE_TRIGGER_BASE_SCHEMA import needed

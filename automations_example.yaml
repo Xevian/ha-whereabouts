@@ -322,3 +322,55 @@ automation:
           title: "Now in {{ city }}"
           message: "{{ person_entity }} has arrived in {{ city }}."
     mode: parallel
+
+  # -----------------------------------------------------------------------
+  # 14. Transit hub arrival — airport, mainline station, ferry port or bus
+  #     station. Only fires once you have actually settled there (3 min
+  #     dwell, under 30 km/h), so trains passing through don't trigger it.
+  # -----------------------------------------------------------------------
+  - alias: "Whereabouts – Transit hub arrival"
+    id: whereabouts_hub_arrival
+    trigger:
+      - platform: event
+        event_type: whereabouts_hub_arrived
+    variables:
+      person_name: >-
+        {{ state_attr(trigger.event.data.person_entity_id, 'friendly_name')
+           or trigger.event.data.person_entity_id }}
+      hub: "{{ trigger.event.data.hub }}"
+      hub_type: "{{ trigger.event.data.hub_type }}"
+      hub_code: "{{ trigger.event.data.hub_code }}"
+      icon: >-
+        {% set icons = {'airport': '✈️', 'station': '🚆',
+                        'ferry': '⛴️', 'bus': '🚌'} %}
+        {{ icons.get(hub_type, '📍') }}
+    condition: []
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "{{ icon }} {{ hub }}"
+          message: >-
+            {{ person_name }} has arrived at {{ hub }}
+            {%- if hub_code %} ({{ hub_code }}){% endif %}.
+    mode: parallel
+
+  # -----------------------------------------------------------------------
+  # 15. Airports only — useful for "landed" / "departed" travel automations
+  # -----------------------------------------------------------------------
+  - alias: "Whereabouts – At an airport"
+    id: whereabouts_airport_only
+    trigger:
+      - platform: event
+        event_type: whereabouts_hub_arrived
+        event_data:
+          hub_type: airport
+    variables:
+      hub: "{{ trigger.event.data.hub }}"
+      hub_code: "{{ trigger.event.data.hub_code }}"
+    condition: []
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "✈️ Airport: {{ hub_code or hub }}"
+          message: "Safe travels — arrived at {{ hub }}."
+    mode: parallel

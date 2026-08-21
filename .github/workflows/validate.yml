@@ -19,7 +19,7 @@ jobs:
           category: integration
 
   tests:
-    name: Zone / place layer tests
+    name: Place layer tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,8 +27,10 @@ jobs:
         with:
           python-version: "3.12"
       # No dependencies: the tests stub Home Assistant and run on stdlib alone.
-      - name: Run tests
+      - name: Zone layer
         run: python tests/test_zone_layer.py
+      - name: Hub layer
+        run: python tests/test_hub_layer.py
 
   hassfest:
     name: hassfest (HA integration checker)

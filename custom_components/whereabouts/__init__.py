@@ -14,8 +14,10 @@ from .const import (
     CONF_PERSON_CALENDARS,
     CONF_PERSONS,
     CONF_SCAN_INTERVAL,
+    CONF_TRACK_HUBS,
     DEFAULT_EVENT_RADIUS_M,
     DEFAULT_SCAN_INTERVAL_MINUTES,
+    DEFAULT_TRACK_HUBS,
     DOMAIN,
     PLATFORMS,
 )
@@ -58,6 +60,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         geocode_cooldown_seconds=geocode_cooldown_seconds,
         person_calendars=entry.data.get(CONF_PERSON_CALENDARS, {}),
         event_radius_m=entry.data.get(CONF_EVENT_RADIUS_M, DEFAULT_EVENT_RADIUS_M),
+        track_hubs=entry.data.get(CONF_TRACK_HUBS, DEFAULT_TRACK_HUBS),
     )
 
     # Seed initial state and geocode any person that already has GPS coords.

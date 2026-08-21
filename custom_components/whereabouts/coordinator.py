@@ -19,6 +19,9 @@ from .const import (
     ATTR_COUNTRY,
     ATTR_COUNTRY_CODE,
     ATTR_DIRECTION,
+    ATTR_HUB,
+    ATTR_HUB_CODE,
+    ATTR_HUB_TYPE,
     ATTR_LATITUDE,
     ATTR_LONGITUDE,
     ATTR_PERSON_ENTITY_ID,
@@ -26,6 +29,7 @@ from .const import (
     ATTR_PLACE_SOURCE,
     ATTR_PREVIOUS_CITY,
     ATTR_PREVIOUS_COUNTRY,
+    ATTR_PREVIOUS_HUB,
     ATTR_PREVIOUS_ZONE,
     ATTR_ZONE,
     ATTR_SPEED,
@@ -40,12 +44,20 @@ from .const import (
     EVENT_CITY_DEPARTED,
     EVENT_COUNTRY_ARRIVED,
     EVENT_COUNTRY_DEPARTED,
+    EVENT_HUB_ARRIVED,
+    EVENT_HUB_DEPARTED,
     EVENT_STARTED_MOVING,
     EVENT_ZONE_ARRIVED,
     EVENT_ZONE_DEPARTED,
+    HUB_CACHE_MAX_CITIES,
+    HUB_CONFIRM_DWELL_SECONDS,
+    HUB_CONFIRM_SPEED_KMH,
+    HUB_NODE_RADIUS_M,
+    HUB_SEARCH_RADIUS_M,
     MAX_BBOX_DEGREES,
     PLACE_SOURCE_CALENDAR,
     PLACE_SOURCE_CITY,
+    PLACE_SOURCE_HUB,
     PLACE_SOURCE_MOVING,
     PLACE_SOURCE_UNKNOWN,
     PLACE_SOURCE_ZONE,
@@ -53,6 +65,7 @@ from .const import (
     STATE_UNKNOWN,
 )
 from .geocoder import NominatimGeocoder
+from .hubs import OverpassHubProvider, TransitHub, find_hub
 from .zones import resolve_zone
 
 _LOGGER = logging.getLogger(__name__)
@@ -83,8 +96,10 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "country_code": "FR" | None,
                 "previous_country": "Spain" | None,
                 "zone": "Home" | None,
+                "hub": "Birmingham Airport" | None,
+                "hub_type": "airport" | "station" | "ferry" | "bus" | None,
                 "place": "Home" | "Paris" | "moving",
-                "place_source": "zone" | "calendar" | "city" | "moving",
+                "place_source": "zone" | "calendar" | "hub" | "city" | "moving",
             },
             ...
         }
@@ -97,6 +112,7 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         geocode_cooldown_seconds: int,
         person_calendars: dict[str, str | None] | None = None,
         event_radius_m: float = 300,
+        track_hubs: bool = False,
     ) -> None:
         self._person_entity_ids = person_entity_ids
         self._geocoder = NominatimGeocoder(async_get_clientsession(hass))
@@ -125,6 +141,23 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # and its own zone logic accounts for GPS accuracy.
         self._zone: dict[str, str | None] = {}
         self._previous_zone: dict[str, str | None] = {}
+
+        # ── Transit hubs ─────────────────────────────────────────────
+        # Pure enrichment: every failure path here leaves city tracking
+        # exactly as it would have been.
+        self._track_hubs = track_hubs
+        self._hub_provider = OverpassHubProvider(async_get_clientsession(hass))
+        # Hubs near each geocoded place, keyed by the city's osm_id so one
+        # Overpass call serves every subsequent GPS update in that city.
+        self._hub_cache: dict[int | str, list[TransitHub]] = {}
+        # The hub list currently in play for each person — a reference into
+        # _hub_cache, refreshed when they geocode into a different city.
+        self._active_hubs: dict[str, list[TransitHub]] = {}
+        # Which hub each person is currently at, and the last different one.
+        self._hub: dict[str, TransitHub | None] = {}
+        self._previous_hub: dict[str, str | None] = {}
+        # Hub arrivals awaiting dwell confirmation.
+        self._pending_hub: dict[str, dict[str, Any]] = {}
         # Pending city arrivals — geocoded but not yet confirmed by a subsequent
         # GPS update inside the same bbox.  Discarded if the person moves on
         # before the next update, preventing drive-through "arrival" spam.
@@ -226,6 +259,10 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         zone_name = resolve_zone(self.hass, person_state, lat, lon)
         self._update_zone(entity_id, zone_name, lat, lon)
 
+        # ── Transit hub (below zone, above city) ──────────────────────────
+        # Runs against the cached hub list only — no network call here.
+        hub = self._update_hub(entity_id, lat, lon, speed_kmh, now)
+
         # ── Fast path: still inside the cached bounding box ──────────────
         if (
             cached
@@ -240,7 +277,7 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             cached[ATTR_BEARING] = bearing
             cached[ATTR_DIRECTION] = direction
             cached[ATTR_CALENDAR_EVENT] = event_title
-            self._set_place(entity_id, cached, event_title, zone_name)
+            self._set_place(entity_id, cached, event_title, zone_name, hub)
             self._push(entity_id, cached)
 
             # Confirm any pending arrival — person is still here on this update,
@@ -280,7 +317,7 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._confirmed_city[entity_id] = p["city"]
                     self._departure_announced.discard(entity_id)
                     cached["previous_city"] = self._previous_city.get(entity_id)
-                    self._set_place(entity_id, cached, event_title, zone_name)
+                    self._set_place(entity_id, cached, event_title, zone_name, hub)
                     self._push(entity_id, cached)
                     self._fire_arrived(
                         entity_id, p["city"], p["old_city"],
@@ -300,7 +337,7 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         old_state = (cached or {}).get("state")
         moving = _moving_state(lat, lon, cached, speed_kmh, speed_mph, bearing, direction, event_title)
-        self._set_place(entity_id, moving, event_title, zone_name)
+        self._set_place(entity_id, moving, event_title, zone_name, hub)
         self._cache[entity_id] = moving
         self._push(entity_id, moving)
 
@@ -358,7 +395,7 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ATTR_DIRECTION: direction,
             ATTR_CALENDAR_EVENT: event_title,
         }
-        self._set_place(entity_id, entry, event_title, zone_name)
+        self._set_place(entity_id, entry, event_title, zone_name, hub)
         self._cache[entity_id] = entry
         self._push(entity_id, entry)
 
@@ -409,6 +446,15 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elif old_country is None and new_country is not None:
             self._fire_country_arrived(entity_id, new_country, new_country_code, None, lat, lon)
 
+        # ── Hub enrichment ────────────────────────────────────────────────
+        # Deliberately last: the city has already been published and its
+        # events already fired, so however slow or dead Overpass is, none of
+        # that is held up waiting for it.
+        await self._enrich_with_hubs(
+            entity_id, entry, geo["osm_id"], lat, lon, speed_kmh, now,
+            event_title, zone_name,
+        )
+
     async def async_handle_zone_update(
         self, entity_id: str, person_state: str | None
     ) -> None:
@@ -432,7 +478,13 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         self._update_zone(entity_id, zone_name, lat, lon)
-        self._set_place(entity_id, cached, cached.get(ATTR_CALENDAR_EVENT), zone_name)
+        self._set_place(
+            entity_id,
+            cached,
+            cached.get(ATTR_CALENDAR_EVENT),
+            zone_name,
+            self._hub.get(entity_id),
+        )
         self._cache[entity_id] = cached
         self._push(entity_id, cached)
 
@@ -468,27 +520,174 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 entity_id, zone_name, self._previous_zone.get(entity_id), lat, lon
             )
 
+    async def _enrich_with_hubs(
+        self,
+        entity_id: str,
+        entry: dict[str, Any],
+        osm_id: int | None,
+        lat: float,
+        lon: float,
+        speed_kmh: float | None,
+        now: datetime,
+        event_title: str | None,
+        zone_name: str | None,
+    ) -> None:
+        """Load hubs for the new city and re-publish only if that changed anything.
+
+        Called after the city entry has already been pushed.  A hub lookup
+        that is slow, rate-limited or dead therefore costs nothing except the
+        hub name itself.
+        """
+        if not self._track_hubs:
+            return
+
+        await self._refresh_hubs(entity_id, lat, lon, osm_id)
+        hub = self._update_hub(entity_id, lat, lon, speed_kmh, now)
+
+        current = entry.get(ATTR_HUB)
+        if (hub.name if hub else None) == current:
+            return
+
+        self._set_place(entity_id, entry, event_title, zone_name, hub)
+        self._push(entity_id, entry)
+
+    async def _refresh_hubs(
+        self, entity_id: str, lat: float, lon: float, osm_id: int | None
+    ) -> None:
+        """Load the hub list for the city just geocoded, if not already cached.
+
+        Called at most once per city change.  Overpass is never queried on a
+        plain GPS update — the proximity test runs against this cached list.
+        """
+        if not self._track_hubs:
+            return
+
+        key: int | str = osm_id if osm_id is not None else f"{lat:.2f},{lon:.2f}"
+
+        cached = self._hub_cache.get(key)
+        if cached is not None:
+            self._active_hubs[entity_id] = cached
+            return
+
+        hubs = await self._hub_provider.fetch_hubs(lat, lon, HUB_SEARCH_RADIUS_M)
+        if hubs is None:
+            # Overpass unavailable.  Keep the previous list rather than
+            # blanking it: stale hubs beat no hubs, and the city is unaffected.
+            _LOGGER.debug(
+                "%s: hub lookup unavailable near (%.4f, %.4f) — keeping city only",
+                entity_id, lat, lon,
+            )
+            return
+
+        self._hub_cache[key] = hubs
+        self._active_hubs[entity_id] = hubs
+
+        while len(self._hub_cache) > HUB_CACHE_MAX_CITIES:
+            self._hub_cache.pop(next(iter(self._hub_cache)))
+
+    def _update_hub(
+        self,
+        entity_id: str,
+        lat: float,
+        lon: float,
+        speed_kmh: float | None,
+        now: datetime,
+    ) -> TransitHub | None:
+        """Return the person's confirmed hub, firing arrival/departure events.
+
+        Arrival is held until the person has been inside the hub for
+        HUB_CONFIRM_DWELL_SECONDS and is below HUB_CONFIRM_SPEED_KMH.  That
+        dwell window is what distinguishes a hub from a station the train
+        merely passes through — no OSM tag reliably does it.
+        """
+        if not self._track_hubs:
+            return None
+
+        hubs = self._active_hubs.get(entity_id)
+        if not hubs:
+            # No hub data for this area (never fetched, or Overpass was down).
+            # Keep whatever is confirmed rather than inventing a departure.
+            return self._hub.get(entity_id)
+
+        candidate = find_hub(hubs, lat, lon, HUB_NODE_RADIUS_M)
+        confirmed = self._hub.get(entity_id)
+
+        # ── Left the confirmed hub ────────────────────────────────────
+        if confirmed is not None and (
+            candidate is None or candidate.name != confirmed.name
+        ):
+            self._hub[entity_id] = None
+            self._previous_hub[entity_id] = confirmed.name
+            self._pending_hub.pop(entity_id, None)
+            self._fire_hub_departed(entity_id, confirmed, lat, lon)
+            confirmed = None
+
+        if candidate is None:
+            self._pending_hub.pop(entity_id, None)
+            return None
+
+        if confirmed is not None and candidate.name == confirmed.name:
+            return confirmed
+
+        # ── New candidate: hold pending until dwell + speed confirm it ─
+        pending = self._pending_hub.get(entity_id)
+        if pending is None or pending["hub"].name != candidate.name:
+            self._pending_hub[entity_id] = {"hub": candidate, "since": now}
+            _LOGGER.debug(
+                "%s: pending hub arrival at %s (awaiting %ds dwell)",
+                entity_id, candidate.name, HUB_CONFIRM_DWELL_SECONDS,
+            )
+            return None
+
+        dwell = (now - pending["since"]).total_seconds()
+        still_moving = (
+            speed_kmh is not None and speed_kmh >= HUB_CONFIRM_SPEED_KMH
+        )
+        if still_moving or dwell < HUB_CONFIRM_DWELL_SECONDS:
+            _LOGGER.debug(
+                "%s: at %s for %.0fs at %.1f km/h — still pending",
+                entity_id, candidate.name, dwell, speed_kmh or 0,
+            )
+            return None
+
+        self._pending_hub.pop(entity_id, None)
+        self._hub[entity_id] = candidate
+        self._fire_hub_arrived(
+            entity_id, candidate, self._previous_hub.get(entity_id), lat, lon
+        )
+        return candidate
+
     def _set_place(
         self,
         entity_id: str,
         entry: dict[str, Any],
         event_title: str | None,
         zone_name: str | None,
+        hub: TransitHub | None = None,
     ) -> None:
         """Resolve `place` / `place_source` for one entry, highest source wins.
 
-        Precedence: calendar event → zone → city → moving/unknown.  A hub
-        source will slot in between zone and city when the transit-hub layer
-        lands.  `city` and `previous_city` are deliberately left alone — the
-        place layer sits on top of the geocoded city, it never rewrites it.
+        Precedence: calendar event → zone → transit hub → city → moving.
+        `city` and `previous_city` are deliberately left alone — the place
+        layer sits on top of the geocoded city, it never rewrites it.
+
+        A zone outranks a hub because a zone is a name the user chose
+        themselves: someone who has drawn a zone around their local station
+        wants to see that name, not the OSM one.
         """
         entry[ATTR_ZONE] = zone_name
         entry[ATTR_PREVIOUS_ZONE] = self._previous_zone.get(entity_id)
+        entry[ATTR_HUB] = hub.name if hub else None
+        entry[ATTR_HUB_TYPE] = hub.hub_type if hub else None
+        entry[ATTR_HUB_CODE] = hub.code if hub else None
+        entry[ATTR_PREVIOUS_HUB] = self._previous_hub.get(entity_id)
 
         if event_title:
             place, source = event_title, PLACE_SOURCE_CALENDAR
         elif zone_name:
             place, source = zone_name, PLACE_SOURCE_ZONE
+        elif hub is not None:
+            place, source = hub.name, PLACE_SOURCE_HUB
         else:
             state = entry.get("state") or STATE_UNKNOWN
             if state == STATE_MOVING:
@@ -620,6 +819,46 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             },
         )
         _LOGGER.debug("%s: %s left zone %r", EVENT_ZONE_DEPARTED, entity_id, zone_name)
+
+    def _fire_hub_arrived(
+        self,
+        entity_id: str,
+        hub: TransitHub,
+        previous_hub: str | None,
+        lat: float,
+        lon: float,
+    ) -> None:
+        self.hass.bus.async_fire(
+            EVENT_HUB_ARRIVED,
+            {
+                ATTR_PERSON_ENTITY_ID: entity_id,
+                ATTR_HUB: hub.name,
+                ATTR_HUB_TYPE: hub.hub_type,
+                ATTR_HUB_CODE: hub.code,
+                ATTR_PREVIOUS_HUB: previous_hub,
+                ATTR_LATITUDE: lat,
+                ATTR_LONGITUDE: lon,
+            },
+        )
+        _LOGGER.debug(
+            "%s: %s arrived at %s %r", EVENT_HUB_ARRIVED, entity_id, hub.hub_type, hub.name
+        )
+
+    def _fire_hub_departed(
+        self, entity_id: str, hub: TransitHub, lat: float, lon: float
+    ) -> None:
+        self.hass.bus.async_fire(
+            EVENT_HUB_DEPARTED,
+            {
+                ATTR_PERSON_ENTITY_ID: entity_id,
+                ATTR_HUB: hub.name,
+                ATTR_HUB_TYPE: hub.hub_type,
+                ATTR_HUB_CODE: hub.code,
+                ATTR_LATITUDE: lat,
+                ATTR_LONGITUDE: lon,
+            },
+        )
+        _LOGGER.debug("%s: %s left %r", EVENT_HUB_DEPARTED, entity_id, hub.name)
 
     def _push(self, entity_id: str, entry: dict[str, Any]) -> None:
         """Merge one person's entry into coordinator.data and notify sensors."""
@@ -901,6 +1140,10 @@ def _unknown_state() -> dict[str, Any]:
         ATTR_CALENDAR_EVENT: None,
         ATTR_ZONE: None,
         ATTR_PREVIOUS_ZONE: None,
+        ATTR_HUB: None,
+        ATTR_HUB_TYPE: None,
+        ATTR_HUB_CODE: None,
+        ATTR_PREVIOUS_HUB: None,
         ATTR_PLACE: STATE_UNKNOWN,
         ATTR_PLACE_SOURCE: PLACE_SOURCE_UNKNOWN,
     }
@@ -939,6 +1182,10 @@ def _moving_state(
         ATTR_CALENDAR_EVENT: event_title,
         ATTR_ZONE: None,
         ATTR_PREVIOUS_ZONE: None,
+        ATTR_HUB: None,
+        ATTR_HUB_TYPE: None,
+        ATTR_HUB_CODE: None,
+        ATTR_PREVIOUS_HUB: None,
         ATTR_PLACE: STATE_MOVING,
         ATTR_PLACE_SOURCE: PLACE_SOURCE_MOVING,
     }

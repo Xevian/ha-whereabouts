@@ -19,12 +19,16 @@ from .const import (
     ATTR_COUNTRY_CODE,
     ATTR_DIRECTION,
     ATTR_CITY,
+    ATTR_HUB,
+    ATTR_HUB_CODE,
+    ATTR_HUB_TYPE,
     ATTR_OSM_ID,
     ATTR_PLACE,
     ATTR_PLACE_SOURCE,
     ATTR_PLACE_TYPE,
     ATTR_PREVIOUS_CITY,
     ATTR_PREVIOUS_COUNTRY,
+    ATTR_PREVIOUS_HUB,
     ATTR_PREVIOUS_ZONE,
     ATTR_ZONE,
     ATTR_SPEED,
@@ -54,11 +58,12 @@ async def async_setup_entry(
 class WhereaboutsSensor(CoordinatorEntity[WhereaboutsCoordinator], SensorEntity):
     """Sensor reporting the current place for one tracked person.
 
-    State:      zone name | event title | city name | "moving" | "unknown"
+    State:      zone | event title | transit hub | city | "moving" | "unknown"
                 — whichever source ranks highest, per place_source.
-    Attributes: city, place_source, zone, previous_zone, place_type, osm_id,
-                country, country_code, previous_city, previous_country,
-                speed_kmh, speed_mph, bearing, direction, calendar_event
+    Attributes: city, place_source, zone, previous_zone, hub, hub_type,
+                hub_code, previous_hub, place_type, osm_id, country,
+                country_code, previous_city, previous_country, speed_kmh,
+                speed_mph, bearing, direction, calendar_event
     """
 
     _attr_has_entity_name = True
@@ -141,6 +146,9 @@ class WhereaboutsSensor(CoordinatorEntity[WhereaboutsCoordinator], SensorEntity)
             ("city", ATTR_CITY),
             ("place_source", ATTR_PLACE_SOURCE),
             ("zone", ATTR_ZONE),
+            ("hub", ATTR_HUB),
+            ("hub_type", ATTR_HUB_TYPE),
+            ("hub_code", ATTR_HUB_CODE),
             ("place_type", ATTR_PLACE_TYPE),
             ("osm_id", ATTR_OSM_ID),
             ("country", ATTR_COUNTRY),
@@ -158,6 +166,7 @@ class WhereaboutsSensor(CoordinatorEntity[WhereaboutsCoordinator], SensorEntity)
         attrs[ATTR_PREVIOUS_CITY] = entry.get("previous_city")
         attrs[ATTR_PREVIOUS_COUNTRY] = entry.get("previous_country")
         attrs[ATTR_PREVIOUS_ZONE] = entry.get("previous_zone")
+        attrs[ATTR_PREVIOUS_HUB] = entry.get("previous_hub")
 
         return attrs
 
