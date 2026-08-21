@@ -28,6 +28,8 @@ EVENT_COUNTRY_ARRIVED = "whereabouts_country_arrived"
 EVENT_COUNTRY_DEPARTED = "whereabouts_country_departed"
 EVENT_CALENDAR_ARRIVED = "whereabouts_calendar_arrived"
 EVENT_CALENDAR_DEPARTED = "whereabouts_calendar_departed"
+EVENT_ZONE_ARRIVED = "whereabouts_zone_arrived"
+EVENT_ZONE_DEPARTED = "whereabouts_zone_departed"
 
 # Event / attribute keys
 ATTR_PERSON_ENTITY_ID = "person_entity_id"
@@ -45,6 +47,29 @@ ATTR_SPEED_MPH = "speed_mph"
 ATTR_BEARING = "bearing"
 ATTR_DIRECTION = "direction"
 ATTR_CALENDAR_EVENT = "calendar_event"
+ATTR_ZONE = "zone"
+ATTR_PREVIOUS_ZONE = "previous_zone"
+
+# The "place" layer sits above city: one human-meaningful name resolved from
+# the highest-priority source available, plus a tag saying where it came from.
+# city / previous_city stay untouched by it, so the geocoded city history is
+# never polluted by a night at home or a stop at an airport.
+ATTR_PLACE = "place"
+ATTR_PLACE_SOURCE = "place_source"
+
+PLACE_SOURCE_CALENDAR = "calendar"
+PLACE_SOURCE_ZONE = "zone"
+PLACE_SOURCE_CITY = "city"
+PLACE_SOURCE_MOVING = "moving"
+PLACE_SOURCE_UNKNOWN = "unknown"
+
+# HA person states that are not zone names.  Any other value *is* the
+# friendly name of the zone the person is currently inside.
+PERSON_STATE_HOME = "home"
+PERSON_STATE_NOT_HOME = "not_home"
+NON_ZONE_PERSON_STATES = frozenset(
+    {PERSON_STATE_NOT_HOME, "unknown", "unavailable", "none", ""}
+)
 
 # Nominatim forward geocoding (used to resolve calendar event locations).
 NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"

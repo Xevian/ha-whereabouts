@@ -5,7 +5,7 @@
 [![Validate][validate-badge]][validate-url]
 [![License: MIT][license-badge]][license-url]
 
-A [HACS](https://hacs.xyz)-compatible Home Assistant custom integration that gives you rich location awareness for any `person` entity — not just which zone they're in, but **which city, which country, how fast they're moving, which direction, and whether they're near a calendar event venue**.
+A [HACS](https://hacs.xyz)-compatible Home Assistant custom integration that gives you rich location awareness for any `person` entity — **which zone, which city, which country, how fast they're moving, which direction, and whether they're near a calendar event venue**.
 
 ---
 
@@ -17,9 +17,10 @@ A [HACS](https://hacs.xyz)-compatible Home Assistant custom integration that giv
 | 🌍 **Country tracking** | Detects country arrivals and departures as a separate attribute |
 | 🗺️ **Bounding-box cache** | Uses Nominatim's own bounding box — no fixed radius, no constant API calls |
 | 🚗 **Speed & bearing** | Calculates speed (km/h + mph), compass bearing, and 8-point direction between GPS updates |
+| 🏠 **Zone awareness** | Reports the name of the HA zone you're in — "Home" and "Work" beat a geocoded city name for the same spot |
 | 📅 **Calendar event proximity** | Links a Google (or any HA) calendar per person; sensor state switches to the event title when within the arrival radius |
 | 📍 **Next event map pin** | A `device_tracker` entity shows the next calendar event *with a location* as a map pin with an arrival-radius circle |
-| 🔔 **HA bus events** | Fires `whereabouts_arrived`, `whereabouts_departed`, `whereabouts_country_arrived`, `whereabouts_country_departed`, `whereabouts_calendar_arrived`, `whereabouts_calendar_departed` for automations |
+| 🔔 **HA bus events** | Fires `whereabouts_arrived`, `whereabouts_departed`, `whereabouts_country_arrived`, `whereabouts_country_departed`, `whereabouts_calendar_arrived`, `whereabouts_calendar_departed`, `whereabouts_zone_arrived`, `whereabouts_zone_departed` for automations |
 | ⚙️ **Options flow** | Change persons, scan interval, arrival radius, or calendar assignments at any time without restarting HA |
 
 ---
@@ -63,14 +64,17 @@ For each tracked person (e.g. `person.john`) the integration creates:
 
 | Entity | Type | State |
 |---|---|---|
-| `sensor.whereabouts_john` | Sensor | City name · `moving` · `unknown` |
+| `sensor.whereabouts_john` | Sensor | Zone · event title · city name · `moving` · `unknown` |
 | `device_tracker.whereabouts_event_john` | Device Tracker | Next calendar event title (map pin) |
 
 ### Sensor attributes
 
 | Attribute | Description |
 |---|---|
-| `city` | Current city / town |
+| `place_source` | Which layer produced the state: `zone`, `calendar`, `city`, `moving`, `unknown` |
+| `zone` | Current HA zone name, if inside one |
+| `previous_zone` | Previous HA zone |
+| `city` | Current city / town — always the geocoded city, never overwritten by a zone |
 | `previous_city` | Previous city |
 | `country` | Country name |
 | `country_code` | ISO 3166-1 alpha-2 code |
@@ -122,6 +126,19 @@ latitude: 48.8566
 longitude: 2.3522
 ```
 
+### `whereabouts_zone_arrived` / `whereabouts_zone_departed`
+```yaml
+person_entity_id: person.john
+zone: Home
+previous_zone: Work       # zone_arrived only; null on first detection
+latitude: 51.8642
+longitude: -2.2380
+```
+
+Zone events fire immediately on the transition. Unlike city arrivals they need
+no dwell or speed confirmation — HA has already decided the person is inside
+the zone, and its own zone logic accounts for GPS accuracy.
+
 ### `whereabouts_calendar_arrived` / `whereabouts_calendar_departed`
 ```yaml
 person_entity_id: person.john
@@ -134,9 +151,10 @@ longitude: -1.7240
 
 ## Automation examples
 
-See [`automations_example.yaml`](automations_example.yaml) for 11 ready-to-use automations covering:
+See [`automations_example.yaml`](automations_example.yaml) for 13 ready-to-use automations covering:
 
 - Arrival / departure notifications for any person or city
+- Zone arrival notifications, and city alerts that ignore zone-sourced states
 - Country landing alerts
 - Calendar event arrival / departure notifications
 - Sensor state conditions (e.g. turn on lights when in a specific city)
@@ -153,6 +171,31 @@ After setup, go to **Settings → Devices & Services → Whereabouts → Configu
 ---
 
 ## How it works
+
+### The place layer
+
+The sensor state is one *place* name, resolved from the highest-priority
+source that has an answer:
+
+| Priority | Source | `place_source` | Example |
+|---|---|---|---|
+| 1 | Active calendar event within the arrival radius | `calendar` | `MCM Comic Con Birmingham` |
+| 2 | HA zone the person is inside | `zone` | `Home` |
+| 3 | Reverse-geocoded city | `city` | `Gloucester` |
+| 4 | Outside the cached bbox | `moving` | `moving` |
+
+The `city` attribute is never overwritten by the layers above it, so
+`previous_city` and the `whereabouts_arrived` / `whereabouts_departed` chain
+stay a record of real geocoded cities — a week at home doesn't push `Home`
+into your city history.
+
+Zones cost nothing to resolve: HA already writes the zone's friendly name into
+the person entity's state, so no geometry runs and no API is called. The one
+exception is **passive zones**, which HA deliberately excludes from person
+state; those are matched by distance, and only when the person is otherwise
+`not_home`.
+
+### Update flow
 
 1. **Real-time updates** — `async_track_state_change_event` fires on every GPS position change of a tracked person
 2. **Bounding-box cache** — if the new position falls inside the cached bbox for the current city, no API call is made

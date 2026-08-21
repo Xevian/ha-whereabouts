@@ -2,9 +2,9 @@ name: Validate
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
-    branches: [main]
+    branches: [main, master]
   release:
     types: [published]
 
@@ -17,6 +17,18 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+
+  tests:
+    name: Zone / place layer tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # No dependencies: the tests stub Home Assistant and run on stdlib alone.
+      - name: Run tests
+        run: python tests/test_zone_layer.py
 
   hassfest:
     name: hassfest (HA integration checker)

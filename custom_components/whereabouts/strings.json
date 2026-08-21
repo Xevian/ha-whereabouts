@@ -33,7 +33,9 @@
       "country_arrived": "Arrived in a country",
       "country_departed": "Left a country",
       "calendar_arrived": "Arrived at a calendar event venue",
-      "calendar_departed": "Left a calendar event venue"
+      "calendar_departed": "Left a calendar event venue",
+      "zone_arrived": "Arrived at a zone",
+      "zone_departed": "Left a zone"
     }
   },
   "options": {

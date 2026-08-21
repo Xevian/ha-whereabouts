@@ -22,8 +22,12 @@ from .const import (
     ATTR_LATITUDE,
     ATTR_LONGITUDE,
     ATTR_PERSON_ENTITY_ID,
+    ATTR_PLACE,
+    ATTR_PLACE_SOURCE,
     ATTR_PREVIOUS_CITY,
     ATTR_PREVIOUS_COUNTRY,
+    ATTR_PREVIOUS_ZONE,
+    ATTR_ZONE,
     ATTR_SPEED,
     ATTR_SPEED_MPH,
     ARRIVAL_CONFIRM_DWELL_SECONDS,
@@ -37,11 +41,19 @@ from .const import (
     EVENT_COUNTRY_ARRIVED,
     EVENT_COUNTRY_DEPARTED,
     EVENT_STARTED_MOVING,
+    EVENT_ZONE_ARRIVED,
+    EVENT_ZONE_DEPARTED,
     MAX_BBOX_DEGREES,
+    PLACE_SOURCE_CALENDAR,
+    PLACE_SOURCE_CITY,
+    PLACE_SOURCE_MOVING,
+    PLACE_SOURCE_UNKNOWN,
+    PLACE_SOURCE_ZONE,
     STATE_MOVING,
     STATE_UNKNOWN,
 )
 from .geocoder import NominatimGeocoder
+from .zones import resolve_zone
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,6 +82,9 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "country": "France" | None,
                 "country_code": "FR" | None,
                 "previous_country": "Spain" | None,
+                "zone": "Home" | None,
+                "place": "Home" | "Paris" | "moving",
+                "place_source": "zone" | "calendar" | "city" | "moving",
             },
             ...
         }
@@ -104,6 +119,12 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._event_location_cache: dict[str, tuple[float, float]] = {}
         # Which calendar event title each person is currently at (for detecting transitions).
         self._at_event: dict[str, str | None] = {}
+        # Which HA zone each person is currently inside, and the last
+        # different one.  Unlike city arrivals these need no dwell/speed
+        # confirmation: HA has already decided the person is in the zone,
+        # and its own zone logic accounts for GPS accuracy.
+        self._zone: dict[str, str | None] = {}
+        self._previous_zone: dict[str, str | None] = {}
         # Pending city arrivals — geocoded but not yet confirmed by a subsequent
         # GPS update inside the same bbox.  Discarded if the person moves on
         # before the next update, preventing drive-through "arrival" spam.
@@ -154,8 +175,13 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             lon = state.attributes.get("longitude")
             if lat is not None and lon is not None:
                 await self.async_handle_location_update(
-                    entity_id, float(lat), float(lon)
+                    entity_id, float(lat), float(lon), state.state
                 )
+            else:
+                # No GPS (router-based tracker, or a phone settled on Wi-Fi at
+                # home).  The zone is still knowable from the person's state,
+                # and is the only place name available for them.
+                await self.async_handle_zone_update(entity_id, state.state)
 
 
     # ------------------------------------------------------------------
@@ -163,14 +189,19 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ------------------------------------------------------------------
 
     async def async_handle_location_update(
-        self, entity_id: str, lat: float, lon: float
+        self, entity_id: str, lat: float, lon: float, person_state: str | None = None
     ) -> None:
         """Process a new GPS fix for one person.
 
         1. Compute speed + bearing from the previous fix (if any).
-        2. If inside cached bbox → update coords + motion, keep city name, no API call.
-        3. If outside bbox → immediately set state to 'moving', then geocode
+        2. Resolve the HA zone (if any) from person_state — free, no geometry.
+        3. If inside cached bbox → update coords + motion, keep city name, no API call.
+        4. If outside bbox → immediately set state to 'moving', then geocode
            only if the per-person cooldown has expired.
+
+        person_state is the raw person entity state, used to resolve the zone.
+        Geocoding is unaffected by it: `city` is always the real geocoded city
+        even while `place` reports a zone name on top of it.
         """
         now = dt_util.utcnow()
         cached = self._cache.get(entity_id)
@@ -191,6 +222,10 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             elif prev_event:
                 self._fire_calendar_departed(entity_id, prev_event, lat, lon)
 
+        # ── HA zone (takes display priority over city, below calendar) ────
+        zone_name = resolve_zone(self.hass, person_state, lat, lon)
+        self._update_zone(entity_id, zone_name, lat, lon)
+
         # ── Fast path: still inside the cached bounding box ──────────────
         if (
             cached
@@ -205,6 +240,7 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             cached[ATTR_BEARING] = bearing
             cached[ATTR_DIRECTION] = direction
             cached[ATTR_CALENDAR_EVENT] = event_title
+            self._set_place(entity_id, cached, event_title, zone_name)
             self._push(entity_id, cached)
 
             # Confirm any pending arrival — person is still here on this update,
@@ -244,6 +280,7 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._confirmed_city[entity_id] = p["city"]
                     self._departure_announced.discard(entity_id)
                     cached["previous_city"] = self._previous_city.get(entity_id)
+                    self._set_place(entity_id, cached, event_title, zone_name)
                     self._push(entity_id, cached)
                     self._fire_arrived(
                         entity_id, p["city"], p["old_city"],
@@ -263,6 +300,7 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         old_state = (cached or {}).get("state")
         moving = _moving_state(lat, lon, cached, speed_kmh, speed_mph, bearing, direction, event_title)
+        self._set_place(entity_id, moving, event_title, zone_name)
         self._cache[entity_id] = moving
         self._push(entity_id, moving)
 
@@ -320,6 +358,7 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ATTR_DIRECTION: direction,
             ATTR_CALENDAR_EVENT: event_title,
         }
+        self._set_place(entity_id, entry, event_title, zone_name)
         self._cache[entity_id] = entry
         self._push(entity_id, entry)
 
@@ -370,9 +409,97 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elif old_country is None and new_country is not None:
             self._fire_country_arrived(entity_id, new_country, new_country_code, None, lat, lon)
 
+    async def async_handle_zone_update(
+        self, entity_id: str, person_state: str | None
+    ) -> None:
+        """Update the zone/place layer when a person changes zone with no new fix.
+
+        Phone trackers routinely stop publishing GPS once they settle on Wi-Fi
+        at home, so the zone transition that matters most arrives as a state
+        change carrying no coordinates at all.  This path re-resolves the zone
+        against the last known position and refreshes `place` without touching
+        the geocoded city, the bbox cache, or Nominatim.
+        """
+        cached = self._cache.get(entity_id)
+        if cached is None:
+            cached = _unknown_state()
+
+        lat = cached.get("latitude")
+        lon = cached.get("longitude")
+
+        zone_name = resolve_zone(self.hass, person_state, lat, lon)
+        if zone_name == self._zone.get(entity_id):
+            return
+
+        self._update_zone(entity_id, zone_name, lat, lon)
+        self._set_place(entity_id, cached, cached.get(ATTR_CALENDAR_EVENT), zone_name)
+        self._cache[entity_id] = cached
+        self._push(entity_id, cached)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _update_zone(
+        self,
+        entity_id: str,
+        zone_name: str | None,
+        lat: float | None,
+        lon: float | None,
+    ) -> None:
+        """Record the current zone and fire arrival/departure on a change.
+
+        No dwell or speed confirmation is applied: HA has already decided the
+        person is inside the zone (accounting for GPS accuracy), so unlike a
+        geocoded city there is nothing here to second-guess.
+        """
+        previous = self._zone.get(entity_id)
+        if zone_name == previous:
+            return
+
+        self._zone[entity_id] = zone_name
+
+        if previous:
+            self._previous_zone[entity_id] = previous
+            self._fire_zone_departed(entity_id, previous, lat, lon)
+
+        if zone_name:
+            self._fire_zone_arrived(
+                entity_id, zone_name, self._previous_zone.get(entity_id), lat, lon
+            )
+
+    def _set_place(
+        self,
+        entity_id: str,
+        entry: dict[str, Any],
+        event_title: str | None,
+        zone_name: str | None,
+    ) -> None:
+        """Resolve `place` / `place_source` for one entry, highest source wins.
+
+        Precedence: calendar event → zone → city → moving/unknown.  A hub
+        source will slot in between zone and city when the transit-hub layer
+        lands.  `city` and `previous_city` are deliberately left alone — the
+        place layer sits on top of the geocoded city, it never rewrites it.
+        """
+        entry[ATTR_ZONE] = zone_name
+        entry[ATTR_PREVIOUS_ZONE] = self._previous_zone.get(entity_id)
+
+        if event_title:
+            place, source = event_title, PLACE_SOURCE_CALENDAR
+        elif zone_name:
+            place, source = zone_name, PLACE_SOURCE_ZONE
+        else:
+            state = entry.get("state") or STATE_UNKNOWN
+            if state == STATE_MOVING:
+                place, source = STATE_MOVING, PLACE_SOURCE_MOVING
+            elif state == STATE_UNKNOWN:
+                place, source = STATE_UNKNOWN, PLACE_SOURCE_UNKNOWN
+            else:
+                place, source = state, PLACE_SOURCE_CITY
+
+        entry[ATTR_PLACE] = place
+        entry[ATTR_PLACE_SOURCE] = source
 
     async def _check_calendar_proximity(
         self, entity_id: str, lat: float, lon: float
@@ -455,6 +582,44 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             },
         )
         _LOGGER.debug("%s: %s departed event %r", EVENT_CALENDAR_DEPARTED, entity_id, event_title)
+
+    def _fire_zone_arrived(
+        self,
+        entity_id: str,
+        zone_name: str,
+        previous_zone: str | None,
+        lat: float | None,
+        lon: float | None,
+    ) -> None:
+        self.hass.bus.async_fire(
+            EVENT_ZONE_ARRIVED,
+            {
+                ATTR_PERSON_ENTITY_ID: entity_id,
+                ATTR_ZONE: zone_name,
+                ATTR_PREVIOUS_ZONE: previous_zone,
+                ATTR_LATITUDE: lat,
+                ATTR_LONGITUDE: lon,
+            },
+        )
+        _LOGGER.debug("%s: %s arrived at zone %r", EVENT_ZONE_ARRIVED, entity_id, zone_name)
+
+    def _fire_zone_departed(
+        self,
+        entity_id: str,
+        zone_name: str,
+        lat: float | None,
+        lon: float | None,
+    ) -> None:
+        self.hass.bus.async_fire(
+            EVENT_ZONE_DEPARTED,
+            {
+                ATTR_PERSON_ENTITY_ID: entity_id,
+                ATTR_ZONE: zone_name,
+                ATTR_LATITUDE: lat,
+                ATTR_LONGITUDE: lon,
+            },
+        )
+        _LOGGER.debug("%s: %s left zone %r", EVENT_ZONE_DEPARTED, entity_id, zone_name)
 
     def _push(self, entity_id: str, entry: dict[str, Any]) -> None:
         """Merge one person's entry into coordinator.data and notify sensors."""
@@ -734,6 +899,10 @@ def _unknown_state() -> dict[str, Any]:
         ATTR_BEARING: None,
         ATTR_DIRECTION: None,
         ATTR_CALENDAR_EVENT: None,
+        ATTR_ZONE: None,
+        ATTR_PREVIOUS_ZONE: None,
+        ATTR_PLACE: STATE_UNKNOWN,
+        ATTR_PLACE_SOURCE: PLACE_SOURCE_UNKNOWN,
     }
 
 
@@ -768,4 +937,8 @@ def _moving_state(
         ATTR_BEARING: bearing,
         ATTR_DIRECTION: direction,
         ATTR_CALENDAR_EVENT: event_title,
+        ATTR_ZONE: None,
+        ATTR_PREVIOUS_ZONE: None,
+        ATTR_PLACE: STATE_MOVING,
+        ATTR_PLACE_SOURCE: PLACE_SOURCE_MOVING,
     }

@@ -85,17 +85,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         new_lat = new_state.attributes.get("latitude")
         new_lon = new_state.attributes.get("longitude")
+        zone_changed = old_state is None or old_state.state != new_state.state
 
         if new_lat is None or new_lon is None:
-            # Tracker lost GPS (e.g. switched to Wi-Fi / home zone).
+            # Tracker lost GPS (e.g. switched to Wi-Fi / home zone).  The zone
+            # is still knowable from the person state, so a zone transition
+            # here is the one thing still worth processing.
+            if zone_changed:
+                hass.async_create_task(
+                    coordinator.async_handle_zone_update(entity_id, new_state.state)
+                )
             return
 
         # Skip if coordinates haven't actually changed — person entities
         # can fire state_changed for zone transitions without moving.
-        # Exception: a pending arrival needs a follow-up update to confirm
+        # Exceptions: a pending arrival needs a follow-up update to confirm
         # itself, and a stationary tracker (Wi-Fi lock) can legitimately
-        # report identical coordinates for that confirming fix.
-        if old_state is not None and not coordinator.has_pending_arrival(entity_id):
+        # report identical coordinates for that confirming fix; and a zone
+        # transition is itself the payload when walking into a zone the
+        # phone was already sitting inside coordinate-wise.
+        if (
+            old_state is not None
+            and not zone_changed
+            and not coordinator.has_pending_arrival(entity_id)
+        ):
             if (
                 old_state.attributes.get("latitude") == new_lat
                 and old_state.attributes.get("longitude") == new_lon
@@ -104,7 +117,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         hass.async_create_task(
             coordinator.async_handle_location_update(
-                entity_id, float(new_lat), float(new_lon)
+                entity_id, float(new_lat), float(new_lon), new_state.state
             )
         )
 

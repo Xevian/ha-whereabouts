@@ -274,3 +274,51 @@ automation:
           title: "Convention time! 🎉"
           message: "John has arrived at {{ event_title }}. Have fun!"
     mode: single
+
+  # -----------------------------------------------------------------------
+  # 12. Zone arrival — fires the moment HA places the person in a zone,
+  #     with no dwell or speed confirmation (unlike city arrivals)
+  # -----------------------------------------------------------------------
+  - alias: "Whereabouts – Zone arrival"
+    id: whereabouts_zone_arrival
+    trigger:
+      - platform: event
+        event_type: whereabouts_zone_arrived
+    variables:
+      person_name: >-
+        {{ state_attr(trigger.event.data.person_entity_id, 'friendly_name')
+           or trigger.event.data.person_entity_id }}
+      zone_name: "{{ trigger.event.data.zone }}"
+      previous_zone: "{{ trigger.event.data.previous_zone }}"
+    condition: []
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "Arrived at {{ zone_name }}"
+          message: >-
+            {{ person_name }} has arrived at {{ zone_name }}
+            {%- if previous_zone %} (from {{ previous_zone }}){% endif %}.
+    mode: parallel
+
+  # -----------------------------------------------------------------------
+  # 13. Notify only when the place name came from a city, not a zone —
+  #     stops "arrived in Gloucester" firing every time you get home
+  # -----------------------------------------------------------------------
+  - alias: "Whereabouts – City arrival, ignoring zones"
+    id: whereabouts_city_not_zone
+    trigger:
+      - platform: event
+        event_type: whereabouts_arrived
+    variables:
+      person_entity: "{{ trigger.event.data.person_entity_id }}"
+      city: "{{ trigger.event.data.city }}"
+    condition:
+      - condition: template
+        value_template: >-
+          {{ state_attr('sensor.whereabouts_john', 'place_source') != 'zone' }}
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "Now in {{ city }}"
+          message: "{{ person_entity }} has arrived in {{ city }}."
+    mode: parallel
