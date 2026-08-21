@@ -14,10 +14,12 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_EVENT_RADIUS_M,
+    CONF_TRACK_HUBS,
     CONF_PERSON_CALENDARS,
     CONF_PERSONS,
     CONF_SCAN_INTERVAL,
     DEFAULT_EVENT_RADIUS_M,
+    DEFAULT_TRACK_HUBS,
     DEFAULT_SCAN_INTERVAL_MINUTES,
     DOMAIN,
 )
@@ -32,8 +34,9 @@ def _build_main_schema(
     default_persons: list[str] | None = None,
     default_interval: int = DEFAULT_SCAN_INTERVAL_MINUTES,
     default_radius: int = DEFAULT_EVENT_RADIUS_M,
+    default_track_hubs: bool = DEFAULT_TRACK_HUBS,
 ) -> vol.Schema:
-    """Schema for step 1: persons, geocode cooldown, event radius."""
+    """Schema for step 1: persons, geocode cooldown, event radius, hubs."""
     return vol.Schema(
         {
             vol.Required(
@@ -57,6 +60,7 @@ def _build_main_schema(
             ),
             vol.Optional(
                 CONF_EVENT_RADIUS_M,
+    CONF_TRACK_HUBS,
                 default=default_radius,
             ): selector.selector(
                 {
@@ -93,6 +97,7 @@ class WhereaboutsConfigFlow(ConfigFlow, domain=DOMAIN):
         self._persons: list[str] = []
         self._scan_interval: int = DEFAULT_SCAN_INTERVAL_MINUTES
         self._event_radius_m: int = DEFAULT_EVENT_RADIUS_M
+        self._track_hubs: bool = DEFAULT_TRACK_HUBS
         self._person_calendars: dict[str, str | None] = {}
         self._remaining_persons: list[str] = []
 
@@ -116,7 +121,8 @@ class WhereaboutsConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._persons = persons
                 self._scan_interval = scan_interval
                 self._event_radius_m = user_input.get(
-                    CONF_EVENT_RADIUS_M, DEFAULT_EVENT_RADIUS_M
+                    CONF_EVENT_RADIUS_M,
+    CONF_TRACK_HUBS, DEFAULT_EVENT_RADIUS_M
                 )
                 self._remaining_persons = list(persons)
                 self._person_calendars = {}
@@ -158,6 +164,7 @@ class WhereaboutsConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_PERSONS: self._persons,
                 CONF_SCAN_INTERVAL: self._scan_interval,
                 CONF_EVENT_RADIUS_M: self._event_radius_m,
+                CONF_TRACK_HUBS: self._track_hubs,
                 CONF_PERSON_CALENDARS: self._person_calendars,
             },
         )
@@ -177,6 +184,7 @@ class WhereaboutsOptionsFlow(OptionsFlow):
         self._persons: list[str] = []
         self._scan_interval: int = DEFAULT_SCAN_INTERVAL_MINUTES
         self._event_radius_m: int = DEFAULT_EVENT_RADIUS_M
+        self._track_hubs: bool = DEFAULT_TRACK_HUBS
         self._person_calendars: dict[str, str | None] = {}
         self._remaining_persons: list[str] = []
 
@@ -210,7 +218,8 @@ class WhereaboutsOptionsFlow(OptionsFlow):
                 self._persons = persons
                 self._scan_interval = scan_interval
                 self._event_radius_m = user_input.get(
-                    CONF_EVENT_RADIUS_M, DEFAULT_EVENT_RADIUS_M
+                    CONF_EVENT_RADIUS_M,
+    CONF_TRACK_HUBS, DEFAULT_EVENT_RADIUS_M
                 )
                 self._remaining_persons = list(persons)
                 # Carry existing calendar assignments forward; new persons get None.
@@ -230,6 +239,7 @@ class WhereaboutsOptionsFlow(OptionsFlow):
                     CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES
                 ),
                 default_radius=current.get(CONF_EVENT_RADIUS_M, DEFAULT_EVENT_RADIUS_M),
+                default_track_hubs=current.get(CONF_TRACK_HUBS, DEFAULT_TRACK_HUBS),
             ),
             errors=errors,
         )
@@ -250,6 +260,7 @@ class WhereaboutsOptionsFlow(OptionsFlow):
                 CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES
             )
             self._event_radius_m = current.get(CONF_EVENT_RADIUS_M, DEFAULT_EVENT_RADIUS_M)
+            self._track_hubs = current.get(CONF_TRACK_HUBS, DEFAULT_TRACK_HUBS)
             existing_calendars: dict[str, str | None] = current.get(
                 CONF_PERSON_CALENDARS, {}
             )
@@ -280,6 +291,7 @@ class WhereaboutsOptionsFlow(OptionsFlow):
                 CONF_PERSONS: self._persons,
                 CONF_SCAN_INTERVAL: self._scan_interval,
                 CONF_EVENT_RADIUS_M: self._event_radius_m,
+                CONF_TRACK_HUBS: self._track_hubs,
                 CONF_PERSON_CALENDARS: self._person_calendars,
             },
         )

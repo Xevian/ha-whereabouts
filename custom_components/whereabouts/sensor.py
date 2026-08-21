@@ -18,14 +18,22 @@ from .const import (
     ATTR_COUNTRY,
     ATTR_COUNTRY_CODE,
     ATTR_DIRECTION,
+    ATTR_CITY,
+    ATTR_HUB,
+    ATTR_HUB_CODE,
+    ATTR_HUB_TYPE,
     ATTR_OSM_ID,
+    ATTR_PLACE,
+    ATTR_PLACE_SOURCE,
     ATTR_PLACE_TYPE,
     ATTR_PREVIOUS_CITY,
     ATTR_PREVIOUS_COUNTRY,
+    ATTR_PREVIOUS_HUB,
+    ATTR_PREVIOUS_ZONE,
+    ATTR_ZONE,
     ATTR_SPEED,
     ATTR_SPEED_MPH,
     DOMAIN,
-    STATE_MOVING,
     STATE_UNKNOWN,
 )
 from .coordinator import WhereaboutsCoordinator
@@ -48,12 +56,14 @@ async def async_setup_entry(
 
 
 class WhereaboutsSensor(CoordinatorEntity[WhereaboutsCoordinator], SensorEntity):
-    """Sensor reporting the current city for one tracked person.
+    """Sensor reporting the current place for one tracked person.
 
-    State:      city name | event title | "moving" | "unknown"
-    Attributes: place_type, osm_id, country, country_code,
-                previous_city, previous_country, speed_kmh, speed_mph,
-                bearing, direction, calendar_event
+    State:      zone | event title | transit hub | city | "moving" | "unknown"
+                — whichever source ranks highest, per place_source.
+    Attributes: city, place_source, zone, previous_zone, hub, hub_type,
+                hub_code, previous_hub, place_type, osm_id, country,
+                country_code, previous_city, previous_country, speed_kmh,
+                speed_mph, bearing, direction, calendar_event
     """
 
     _attr_has_entity_name = True
@@ -98,13 +108,21 @@ class WhereaboutsSensor(CoordinatorEntity[WhereaboutsCoordinator], SensorEntity)
 
     @property
     def native_value(self) -> str:
-        """Return calendar event title (if at one), city name, 'moving', or 'unknown'."""
+        """Return the resolved place: zone, event title, city, 'moving', or 'unknown'.
+
+        Precedence lives in the coordinator (see _set_place), which stamps
+        `place` on every entry.  The fallback chain here covers entries
+        written before the place layer existed.
+        """
         data = self.coordinator.data
         if not data or self._person_entity_id not in data:
             return STATE_UNKNOWN
         entry = data[self._person_entity_id]
-        # Calendar event takes display priority over city name.
-        return entry.get(ATTR_CALENDAR_EVENT) or entry.get("state", STATE_UNKNOWN)
+        return (
+            entry.get(ATTR_PLACE)
+            or entry.get(ATTR_CALENDAR_EVENT)
+            or entry.get("state", STATE_UNKNOWN)
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -123,6 +141,14 @@ class WhereaboutsSensor(CoordinatorEntity[WhereaboutsCoordinator], SensorEntity)
 
         # Present only when not None (avoids cluttering attributes panel).
         for key, attr in (
+            # city is exposed explicitly now that the state may be a zone or
+            # event name instead — templates still need the geocoded city.
+            ("city", ATTR_CITY),
+            ("place_source", ATTR_PLACE_SOURCE),
+            ("zone", ATTR_ZONE),
+            ("hub", ATTR_HUB),
+            ("hub_type", ATTR_HUB_TYPE),
+            ("hub_code", ATTR_HUB_CODE),
             ("place_type", ATTR_PLACE_TYPE),
             ("osm_id", ATTR_OSM_ID),
             ("country", ATTR_COUNTRY),
@@ -139,6 +165,8 @@ class WhereaboutsSensor(CoordinatorEntity[WhereaboutsCoordinator], SensorEntity)
         # Always include previous_* (may be None) so templates can rely on them.
         attrs[ATTR_PREVIOUS_CITY] = entry.get("previous_city")
         attrs[ATTR_PREVIOUS_COUNTRY] = entry.get("previous_country")
+        attrs[ATTR_PREVIOUS_ZONE] = entry.get("previous_zone")
+        attrs[ATTR_PREVIOUS_HUB] = entry.get("previous_hub")
 
         return attrs
 
