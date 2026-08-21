@@ -115,6 +115,19 @@ def _install() -> None:
     core.Event = object
     core.callback = lambda func: func
 
+    components = _module("homeassistant.components")
+    components.__path__ = []
+    http = _module("homeassistant.components.http")
+
+    class StaticPathConfig:
+        def __init__(self, url_path, path, cache_headers=True):
+            self.url_path = url_path
+            self.path = path
+            self.cache_headers = cache_headers
+
+    http.StaticPathConfig = StaticPathConfig
+    components.http = http
+
     config_entries = _module("homeassistant.config_entries")
     config_entries.ConfigEntry = object
 

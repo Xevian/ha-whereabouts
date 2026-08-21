@@ -117,7 +117,7 @@ def zone_events(hass):
 _SCHEDULED: list = []
 
 
-async def setup_listener():
+async def setup_listener(register_static: bool = False, http=None):
     """Run async_setup_entry against stubs, returning its state-change callback."""
     captured: dict = {}
 
@@ -146,8 +146,12 @@ async def setup_listener():
     hass.states.set(
         State(PERSON, "not_home", {"latitude": 51.870, "longitude": -2.250})
     )
-    # Skip the bundled-icons static path registration, which needs hass.http.
-    hass.data[f"{const.DOMAIN}_static_registered"] = True
+    # The bundled-icons static path registration needs hass.http, so it is
+    # skipped unless a test opts in and supplies one.
+    if register_static:
+        hass.http = http
+    else:
+        hass.data[f"{const.DOMAIN}_static_registered"] = True
 
     def create_task(coro):
         task = asyncio.ensure_future(coro)
@@ -332,6 +336,29 @@ def test_no_zones_leaves_behaviour_unchanged():
         )
         assert place_of(coordinator)[:2] == ("Gloucester", "city")
         assert zone_events(hass) == []
+
+    asyncio.run(run())
+
+
+def test_setup_registers_the_bundled_icon_path():
+    """The map-pin icons are served from a static path registered at setup.
+
+    Covers the http dependency being declared and StaticPathConfig being
+    imported at module level, now that the pre-2024.7 fallback is gone.
+    """
+
+    async def run():
+        registered = []
+
+        class Http:
+            async def async_register_static_paths(self, configs):
+                registered.extend(configs)
+
+        listener, hass, coordinator = await setup_listener(
+            register_static=True, http=Http()
+        )
+        assert len(registered) == 1, registered
+        assert registered[0].url_path.endswith("/icons")
 
     asyncio.run(run())
 
