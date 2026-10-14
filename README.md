@@ -66,7 +66,9 @@ For each tracked person (e.g. `person.john`) the integration creates:
 | Entity | Type | State |
 |---|---|---|
 | `sensor.whereabouts_john` | Sensor | Zone · event title · transit hub · city name · `moving` · `unknown` |
-| `device_tracker.whereabouts_event_john` | Device Tracker | Next calendar event title (map pin) |
+| `device_tracker.whereabouts_john_next_event` | Device Tracker | Next calendar event title (map pin) |
+
+These are the IDs a fresh install creates. Entities already in the registry keep the IDs they were first given.
 
 ### Sensor attributes
 
