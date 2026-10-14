@@ -82,10 +82,12 @@ class WhereaboutsSensor(CoordinatorEntity[WhereaboutsCoordinator], SensorEntity)
         safe_id = person_entity_id.replace(".", "_")
         self._attr_unique_id = f"whereabouts_{safe_id}"
 
-        person_name = (
-            person_entity_id.split(".")[-1].replace("_", " ").title()
-        )
-        self._attr_name = f"Whereabouts {person_name}"
+        # The main feature of the device: no entity name of its own, so the
+        # friendly name and a fresh entity_id both come from the device name
+        # ("Whereabouts Steve" -> sensor.whereabouts_steve).  Putting the
+        # person's name here too doubled it, since has_entity_name prepends
+        # the device name.
+        self._attr_name = None
 
     # ------------------------------------------------------------------
     # Device info — groups sensor + event tracker under one device per person

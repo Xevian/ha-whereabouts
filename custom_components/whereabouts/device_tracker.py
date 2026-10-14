@@ -86,8 +86,9 @@ class WhereaboutsEventTracker(CoordinatorEntity[WhereaboutsCoordinator], Tracker
 
         safe_id = person_entity_id.replace(".", "_")
         self._attr_unique_id = f"whereabouts_event_{safe_id}"
-        person_name = person_entity_id.split(".")[-1].replace("_", " ").title()
-        self._attr_name = f"Next Event {person_name}"
+        # Appended to the device name by has_entity_name, which already
+        # carries the person: "Whereabouts Steve Next Event".
+        self._attr_name = "Next Event"
 
     # ------------------------------------------------------------------
     # Device info — same identifiers as the sensor so both share one device
