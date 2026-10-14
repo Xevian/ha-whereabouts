@@ -204,19 +204,10 @@ class WhereaboutsEventTracker(CoordinatorEntity[WhereaboutsCoordinator], Tracker
         self._next_start = start
         self._next_end = end
 
-        if location and location not in self.coordinator._event_location_cache:
-            coords = await self.coordinator._geocoder.geocode_address(location)
-            if coords:
-                self.coordinator._event_location_cache[location] = coords
-                _LOGGER.debug(
-                    "Geocoded event location %r → %s", location, coords
-                )
-            else:
-                _LOGGER.warning(
-                    "Could not geocode event location %r for %s",
-                    location,
-                    self._person_entity_id,
-                )
+        # Cached by the coordinator, hits and misses alike; the pin reads
+        # the result back through _cached_coords.
+        if location:
+            await self.coordinator.async_geocode_event_location(location)
 
         self.async_write_ha_state()
 
