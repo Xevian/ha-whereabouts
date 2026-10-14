@@ -38,6 +38,7 @@ from .const import (
     ARRIVAL_CONFIRM_DWELL_SECONDS,
     ARRIVAL_CONFIRM_SPEED_KMH,
     DOMAIN,
+    EVENT_GEOCODE_RETRY_SECONDS,
     MIN_BBOX_DEGREES,
     EVENT_CALENDAR_ARRIVED,
     EVENT_CALENDAR_DEPARTED,
@@ -135,6 +136,9 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Cache of forward-geocoded calendar locations: text → (lat, lon).
         # Entries persist for the life of the coordinator (HA session).
         self._event_location_cache: dict[str, tuple[float, float]] = {}
+        # Locations that failed to geocode, and when, so they are not
+        # re-searched until EVENT_GEOCODE_RETRY_SECONDS have passed.
+        self._event_location_failed: dict[str, datetime] = {}
         # Which calendar event title each person is currently at (for detecting transitions).
         self._at_event: dict[str, str | None] = {}
         # Which HA zone each person is currently inside, and the last
@@ -186,6 +190,43 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # this happens to be constructed inside async_setup_entry.
             config_entry=config_entry,
         )
+
+    async def async_geocode_event_location(
+        self, location: str
+    ) -> tuple[float, float] | None:
+        """Forward-geocode a calendar location, caching hits and misses.
+
+        Shared by the proximity check and the next-event tracker.  A miss is
+        retried after EVENT_GEOCODE_RETRY_SECONDS rather than never, since it
+        may have been a transient Nominatim failure rather than a bad address.
+        """
+        coords = self._event_location_cache.get(location)
+        if coords is not None:
+            return coords
+
+        now = dt_util.utcnow()
+        failed_at = self._event_location_failed.get(location)
+        if (
+            failed_at is not None
+            and (now - failed_at).total_seconds() < EVENT_GEOCODE_RETRY_SECONDS
+        ):
+            return None
+
+        coords = await self._geocoder.geocode_address(location)
+        if coords is None:
+            self._event_location_failed[location] = now
+            _LOGGER.warning(
+                "Could not geocode calendar event location %r — "
+                "retrying in %d minutes",
+                location,
+                EVENT_GEOCODE_RETRY_SECONDS // 60,
+            )
+            return None
+
+        self._event_location_failed.pop(location, None)
+        self._event_location_cache[location] = coords
+        _LOGGER.debug("Cached event location %r → %s", location, coords)
+        return coords
 
     def has_pending_arrival(self, entity_id: str) -> bool:
         """True while an arrival is waiting for its confirming GPS update."""
@@ -731,19 +772,15 @@ class WhereaboutsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
 
         # Forward-geocode the location string (cached after first lookup).
-        coords = self._event_location_cache.get(location)
+        coords = await self.async_geocode_event_location(location)
         if coords is None:
-            coords = await self._geocoder.geocode_address(location)
-            if coords is None:
-                _LOGGER.warning(
-                    "Could not geocode calendar event location %r for %s — "
-                    "event proximity check skipped",
-                    location,
-                    entity_id,
-                )
-                return None
-            _LOGGER.debug("Cached event location %r → %s", location, coords)
-            self._event_location_cache[location] = coords
+            _LOGGER.debug(
+                "No coordinates for calendar event location %r for %s — "
+                "event proximity check skipped",
+                location,
+                entity_id,
+            )
+            return None
 
         event_lat, event_lon = coords
         distance_m = _haversine_m(lat, lon, event_lat, event_lon)

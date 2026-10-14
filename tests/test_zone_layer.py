@@ -292,6 +292,49 @@ def test_calendar_event_outranks_zone():
     asyncio.run(run())
 
 
+def test_unresolvable_event_location_is_not_researched_every_update():
+    """A venue Nominatim can't place is retried hourly, not on every GPS fix."""
+
+    async def run():
+        hass, coordinator = build_coordinator()
+        calls = []
+
+        async def no_match(address):
+            calls.append(address)
+            return None
+
+        coordinator._geocoder.geocode_address = no_match
+
+        for _ in range(5):
+            assert await coordinator.async_geocode_event_location("Nowhere") is None
+            tick(60)
+        assert calls == ["Nowhere"]
+
+        tick(const.EVENT_GEOCODE_RETRY_SECONDS)
+        await coordinator.async_geocode_event_location("Nowhere")
+        assert calls == ["Nowhere", "Nowhere"]
+
+    asyncio.run(run())
+
+
+def test_event_location_hit_is_cached():
+    async def run():
+        hass, coordinator = build_coordinator()
+        calls = []
+
+        async def found(address):
+            calls.append(address)
+            return (51.5, -0.1)
+
+        coordinator._geocoder.geocode_address = found
+
+        for _ in range(3):
+            assert await coordinator.async_geocode_event_location("ExCeL") == (51.5, -0.1)
+        assert calls == ["ExCeL"]
+
+    asyncio.run(run())
+
+
 def test_passive_zone_matched_by_distance():
     """HA excludes passive zones from person state, so they need a distance check."""
 

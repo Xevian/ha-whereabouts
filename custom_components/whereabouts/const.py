@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "whereabouts"
-INTEGRATION_VERSION = "1.5.1"
+INTEGRATION_VERSION = "1.5.2"
 
 # Configuration keys stored in ConfigEntry.data
 CONF_PERSONS = "person_entities"
@@ -100,6 +100,10 @@ NOMINATIM_URL = (
 # Sent to both Nominatim and Overpass, as both ask for identification.
 USER_AGENT = f"HomeAssistant-Whereabouts/{INTEGRATION_VERSION}"
 NOMINATIM_TIMEOUT_SECONDS = 10
+# How long a calendar location that failed to geocode is left alone before
+# being retried.  Without this, an unresolvable venue is re-searched on every
+# GPS update for as long as the event runs, well past Nominatim's usage policy.
+EVENT_GEOCODE_RETRY_SECONDS = 3600
 
 # Speed below which a pending city arrival is confirmed.
 # Above this the person is clearly in transit even if inside the bbox.

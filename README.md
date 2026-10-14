@@ -28,7 +28,7 @@ A [HACS](https://hacs.xyz)-compatible Home Assistant custom integration that giv
 
 ## Requirements
 
-- Home Assistant **2024.7.0** or later (required by `async_register_static_paths`)
+- Home Assistant **2024.11.0** or later (the first release whose `DataUpdateCoordinator` accepts `config_entry`)
 - [HACS](https://hacs.xyz) (recommended install method)
 - At least one `person` entity with a GPS-capable device tracker
 
@@ -66,7 +66,9 @@ For each tracked person (e.g. `person.john`) the integration creates:
 | Entity | Type | State |
 |---|---|---|
 | `sensor.whereabouts_john` | Sensor | Zone · event title · transit hub · city name · `moving` · `unknown` |
-| `device_tracker.whereabouts_event_john` | Device Tracker | Next calendar event title (map pin) |
+| `device_tracker.whereabouts_john_next_event` | Device Tracker | Next calendar event title (map pin) |
+
+These are the IDs a fresh install creates. Entities already in the registry keep the IDs they were first given.
 
 ### Sensor attributes
 

@@ -38,6 +38,10 @@ jobs:
         run: python tests/test_hub_layer.py
       - name: Config flow
         run: python tests/test_config_flow.py
+      - name: Entity naming
+        run: python tests/test_entity_naming.py
+      - name: Device triggers
+        run: python tests/test_device_trigger.py
 
   hassfest:
     name: hassfest (HA integration checker)
