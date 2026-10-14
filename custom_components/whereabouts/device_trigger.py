@@ -8,7 +8,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.const import CONF_DEVICE_ID, CONF_DOMAIN, CONF_PLATFORM, CONF_TYPE
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HassJob, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.typing import ConfigType
 
@@ -104,23 +104,31 @@ async def async_attach_trigger(
         config[CONF_TYPE], person_id, event_type,
     )
 
+    job = HassJob(action, f"Whereabouts device trigger {config[CONF_TYPE]}")
+    # Carries the automation's trigger id and index; without it, trigger.id
+    # is unset and "triggered by" conditions never match.
+    trigger_data = trigger_info["trigger_data"]
+
     @callback
     def _handle_event(event: Any) -> None:
-        # Filter to the specific person this device represents
-        if person_id and event.data.get(ATTR_PERSON_ENTITY_ID) != person_id:
+        # Filter to the specific person this device represents.  An unknown
+        # device (person_id None) matches nobody rather than everybody.
+        if event.data.get(ATTR_PERSON_ENTITY_ID) != person_id:
             return
-        hass.async_create_task(
-            action(
-                {
-                    "trigger": {
-                        CONF_PLATFORM: "device",
-                        CONF_DOMAIN: DOMAIN,
-                        CONF_DEVICE_ID: config[CONF_DEVICE_ID],
-                        CONF_TYPE: config[CONF_TYPE],
-                        "event": event,
-                    }
+        hass.async_run_hass_job(
+            job,
+            {
+                "trigger": {
+                    **trigger_data,
+                    CONF_PLATFORM: "device",
+                    CONF_DOMAIN: DOMAIN,
+                    CONF_DEVICE_ID: config[CONF_DEVICE_ID],
+                    CONF_TYPE: config[CONF_TYPE],
+                    "event": event,
+                    "description": f"Whereabouts {config[CONF_TYPE]}",
                 }
-            )
+            },
+            event.context,
         )
 
     return hass.bus.async_listen(event_type, _handle_event)
