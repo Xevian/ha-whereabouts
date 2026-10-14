@@ -28,7 +28,7 @@ A [HACS](https://hacs.xyz)-compatible Home Assistant custom integration that giv
 
 ## Requirements
 
-- Home Assistant **2024.7.0** or later (required by `async_register_static_paths`)
+- Home Assistant **2024.11.0** or later (the first release whose `DataUpdateCoordinator` accepts `config_entry`)
 - [HACS](https://hacs.xyz) (recommended install method)
 - At least one `person` entity with a GPS-capable device tracker
 
