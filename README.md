@@ -5,7 +5,7 @@
 [![Validate][validate-badge]][validate-url]
 [![License: MIT][license-badge]][license-url]
 
-A [HACS](https://hacs.xyz)-compatible Home Assistant custom integration that gives you rich location awareness for any `person` entity — **which zone, which city, which country, how fast they're moving, which direction, and whether they're near a calendar event venue**.
+A Home Assistant custom integration — installable from the Marketplace, or HACS on 2026.10 and older — that gives you rich location awareness for any `person` entity — **which zone, which city, which country, how fast they're moving, which direction, and whether they're near a calendar event venue**.
 
 ---
 
@@ -29,19 +29,37 @@ A [HACS](https://hacs.xyz)-compatible Home Assistant custom integration that giv
 ## Requirements
 
 - Home Assistant **2024.11.0** or later (the first release whose `DataUpdateCoordinator` accepts `config_entry`)
-- [HACS](https://hacs.xyz) (recommended install method)
+- The **Marketplace** (built into HA 2026.11 and newer) or [HACS](https://hacs.xyz) (2026.10 and older) — recommended install methods
 - At least one `person` entity with a GPS-capable device tracker
 
 ---
 
 ## Installation
 
-### Via HACS (recommended)
+Home Assistant 2026.11 folded HACS into the core as the **Marketplace**. It is
+the same catalog, the same `hacs.json` and the same repository — only the menu
+moved — but HACS itself can no longer be installed on 2026.11 or newer, so the
+entry point depends on your version.
+
+### Via the Marketplace (HA 2026.11 and newer)
+
+1. In HA, go to **Settings → Marketplace**
+2. From the overflow (**⋮**) menu, choose **Custom repositories**
+3. Add `https://github.com/Xevian/ha-whereabouts` with category **Integration**
+4. Search for **Whereabouts** and install
+5. Restart Home Assistant
+
+### Via HACS (HA 2026.10 and older)
 
 1. In HA, go to **HACS → Integrations → ⋮ → Custom repositories**
 2. Add `https://github.com/Xevian/ha-whereabouts` with category **Integration**
 3. Search for **Whereabouts** and install
 4. Restart Home Assistant
+
+> **Already installed via HACS?** Upgrading to 2026.11 converts the setup in
+> place. Custom repositories, entities, devices and dashboard resources carry
+> over, and Whereabouts keeps updating as before — there is nothing to
+> reinstall.
 
 ### Manual
 

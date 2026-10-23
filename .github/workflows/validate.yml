@@ -30,18 +30,26 @@ jobs:
       # Everything else stubs Home Assistant and runs on stdlib alone.
       - name: Install test dependencies
         run: pip install voluptuous
-      - name: Manifest
-        run: python tests/test_manifest.py
-      - name: Zone layer
-        run: python tests/test_zone_layer.py
-      - name: Hub layer
-        run: python tests/test_hub_layer.py
-      - name: Config flow
-        run: python tests/test_config_flow.py
-      - name: Entity naming
-        run: python tests/test_entity_naming.py
-      - name: Device triggers
-        run: python tests/test_device_trigger.py
+      # Discovered rather than listed: a test file that exists but is not run
+      # is the same failure mode as no test at all, which is how the config
+      # flow shipped broken.  Adding tests/test_*.py is enough to gate on it.
+      # Every file runs even after one fails, so a single break doesn't hide
+      # the rest, and the job still fails if any of them did.
+      - name: Tests
+        run: |
+          status=0
+          shopt -s nullglob
+          files=(tests/test_*.py)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No test files found under tests/"
+            exit 1
+          fi
+          for file in "${files[@]}"; do
+            echo "::group::$file"
+            python "$file" || status=1
+            echo "::endgroup::"
+          done
+          exit $status
 
   hassfest:
     name: hassfest (HA integration checker)
