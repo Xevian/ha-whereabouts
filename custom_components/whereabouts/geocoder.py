@@ -26,6 +26,17 @@ _LOGGER = logging.getLogger(__name__)
 # "municipality" covers some European cities not tagged as city/town.
 _CITY_ADDRESS_KEYS = ("town", "city", "suburb", "municipality", "village", "hamlet")
 
+# Keys whose presence proves the point sits in open country.  Nominatim only
+# emits them for standalone rural settlements, never inside a real city, so a
+# "city" alongside one is the surrounding district rather than the place the
+# person is actually in — Highnam/Over/Minsterworth all come back with
+# city="Tewkesbury", the borough 15 km up the road.  When that happens "city"
+# is demoted below every local key instead of being dropped, so it still acts
+# as a last resort.  "town" is left untouched: Farnham legitimately carries
+# town="Farnham" and village="Hale" together.
+_DISTRICT_TELLS = ("village", "hamlet")
+_DEMOTED_CITY_KEYS = tuple(k for k in _CITY_ADDRESS_KEYS if k != "city") + ("city",)
+
 # place_types that warrant a second pass at lower zoom to find the parent town.
 _RURAL_PLACE_TYPES = {"village", "hamlet"}
 
@@ -67,13 +78,19 @@ class NominatimGeocoder:
         if result is None:
             return None
 
-        if result["place_type"] in _RURAL_PLACE_TYPES:
+        # A point whose "city" is really a district has nothing to gain from
+        # pass 2: zoom=10 snaps straight to that same district boundary.
+        if result["place_type"] in _RURAL_PLACE_TYPES and not result["city_is_district"]:
             _LOGGER.debug(
                 "(%.6f, %.6f) resolved to %s %r — trying zoom=10 for parent town",
                 lat, lon, result["place_type"], result["city"],
             )
             parent = await self._call(lat, lon, zoom=10)
-            if parent and parent["place_type"] not in _RURAL_PLACE_TYPES:
+            if (
+                parent
+                and parent["place_type"] not in _RURAL_PLACE_TYPES
+                and not parent["city_is_district"]
+            ):
                 _LOGGER.debug(
                     "Parent town resolved: %r → using %r as city name",
                     result["city"], parent["city"],
@@ -187,10 +204,15 @@ class NominatimGeocoder:
             {k: v for k, v in address.items()},
         )
 
+        city_is_district = "city" in address and any(
+            key in address for key in _DISTRICT_TELLS
+        )
+        keys = _DEMOTED_CITY_KEYS if city_is_district else _CITY_ADDRESS_KEYS
+
         city_name: str | None = None
         place_type: str | None = None
 
-        for key in _CITY_ADDRESS_KEYS:
+        for key in keys:
             if key in address:
                 city_name = address[key]
                 place_type = key
@@ -198,6 +220,14 @@ class NominatimGeocoder:
 
         if city_name is None:
             return None
+
+        if city_is_district:
+            _LOGGER.debug(
+                "city=%r looks like a district (address also has %s) — using %r instead",
+                address["city"],
+                [k for k in _DISTRICT_TELLS if k in address],
+                city_name,
+            )
 
         raw_bb = data.get("boundingbox")
         if not raw_bb or len(raw_bb) != 4:
@@ -214,4 +244,5 @@ class NominatimGeocoder:
             "place_type": place_type,
             "country": address.get("country"),
             "country_code": address.get("country_code", "").upper() or None,
+            "city_is_district": city_is_district,
         }
